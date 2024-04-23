@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <string>
 
+#include "types.h"
 #include "utils.h"
 
 #define SERVER0_IP "127.0.0.1"
@@ -81,6 +82,23 @@ void server_connect(int& sockfd, const int port, const int reuse = 0) {
         error_exit("Can't connect to other server");
     std::cout << "  Connected\n";
 }
+
+
+int recv_in(const int sockfd, void* const buf, const size_t len) {
+    unsigned int bytes_read = 0, tmp;
+    char* bufptr = (char*) buf;
+    while (bytes_read < len) {
+        tmp = recv(sockfd, bufptr + bytes_read, len - bytes_read, 0);
+        if (tmp <= 0) return tmp; else bytes_read += tmp;
+    }
+    return bytes_read;
+}
+
+// TODO bit_sum
+void bit_sum(){
+	std::cout << "Doing BIT_SUM..." << std::endl;
+}
+
 
 int main(int argc, char** argv) {
 
@@ -215,6 +233,47 @@ int main(int argc, char** argv) {
     	if (bytes_received < 0) error_exit("Error receiving data from client");
     	std::cout << "Received message from client: " << std::string(buffer, bytes_received) << std::endl;
 */
+		// Get an initMsg
+        initMsg msg;
+        recv_in(newsockfd, &msg, sizeof(initMsg));
+//		std::cout << "Received from client. msg is:msg.type:" << msg.type << " and msg.num_of_inputs:" << msg.num_of_inputs << std::endl;
+
+	    if (msg.type == BIT_SUM) {
+            std::cout << "BIT_SUM" << std::endl;
+            auto start = clock_start();
+
+			// TODO bit_sum
+			bit_sum();
+
+            std::cout << "Total time  : " << sec_from(start) << std::endl;
+        }
+		else if (msg.type == INT_SUM) {
+            std::cout << "INT_SUM" << std::endl;
+            auto start = clock_start();
+
+			// TODO int_sum
+            std::cout << "Doing INT_SUM..." << std::endl;
+
+            std::cout << "Total time  : " << sec_from(start) << std::endl;
+		}
+		else if (msg.type == AND_OP) {
+            std::cout << "AND_OP" << std::endl;
+            auto start = clock_start();
+
+			// TODO and 
+            std::cout << "Doing AND_OP...." << std::endl;
+
+            std::cout << "Total time  : " << sec_from(start) << std::endl;
+		}
+		else if (msg.type == OR_OP) {
+            std::cout << "OR_OP" << std::endl;
+            auto start = clock_start();
+
+			// TODO or
+            std::cout << "Doing OR_OP...:." << std::endl;
+
+            std::cout << "Total time  : " << sec_from(start) << std::endl;
+		}
 
 		break;
 	}
