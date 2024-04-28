@@ -39,13 +39,11 @@ std::string make_pk(emp::PRG prg) {
 
 int send_to_server(const int server, const void* const buffer, const size_t n, const int flags = 0) {
 	const int socket = (server == 0) ? sockfd0 : ((server == 1) ? sockfd1 : sockfd2);
-//    const int socket = (server == 0 ? sockfd0 : sockfd1);
     int ret = send(socket, buffer, n, flags);
     if (ret < 0) error_exit("Failed to send to server ");
     return ret;
 }
 
-// TODO
 int bit_sum_helper(const std::string protocol, const size_t numreqs, unsigned int &ans, const initMsg* const msg_ptr = nullptr) {
     auto start = clock_start();
     int num_bytes = 0;
@@ -68,10 +66,6 @@ int bit_sum_helper(const std::string protocol, const size_t numreqs, unsigned in
         const std::string pk_s = make_pk(prg);
         const char* const pk = pk_s.c_str();
 
-		std::cout << "TEST+++++++++++++++" << std::endl;
-        std::cout << pk << ": " <<  real_val<< " = " << share0 << " ^ " << share1<< " ^ " << share2 << std::endl;
-		std::cout << "TEST+++++++++++++++" << std::endl;
-
         memcpy(bitshare0[i].pk, &pk[0], PK_LENGTH);
         bitshare0[i].val = share0;
 
@@ -79,7 +73,10 @@ int bit_sum_helper(const std::string protocol, const size_t numreqs, unsigned in
         bitshare1[i].val = share1;
 
         memcpy(bitshare2[i].pk, &pk[0], PK_LENGTH);
-        bitshare1[i].val = share1;
+        bitshare2[i].val = share2;
+
+		std::cout << "TEST---------cilent i = " << i << std::endl;
+        std::cout << pk << ": " << real_val << " = " << bitshare0[i].val << " ^ " << bitshare1[i].val << " ^ " << bitshare2[i].val << std::endl;
     }
 
     if (numreqs > 1)
@@ -90,11 +87,11 @@ int bit_sum_helper(const std::string protocol, const size_t numreqs, unsigned in
         num_bytes += send_to_server(0, msg_ptr, sizeof(initMsg));
         num_bytes += send_to_server(1, msg_ptr, sizeof(initMsg));
         num_bytes += send_to_server(2, msg_ptr, sizeof(initMsg));
-    }
+	}
     for (unsigned int i = 0; i < numreqs; i++) {
         num_bytes += send_to_server(0, &bitshare0[i], sizeof(BitShare));
         num_bytes += send_to_server(1, &bitshare1[i], sizeof(BitShare));
-        num_bytes += send_to_server(2, &bitshare1[i], sizeof(BitShare));
+        num_bytes += send_to_server(2, &bitshare2[i], sizeof(BitShare));
     }
 
     delete[] bitshare0;
@@ -112,7 +109,7 @@ void bit_sum(const std::string protocol, const size_t numreqs) {
 	int num_bytes = 0;
 	initMsg msg;
 	msg.num_of_inputs = numreqs;
-	msg.type = INT_SUM;
+	msg.type = BIT_SUM;
 
 	num_bytes += bit_sum_helper(protocol, numreqs, ans, &msg);
 
