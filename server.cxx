@@ -1,7 +1,7 @@
 // server.cxx
 // 三个server互相连接，0监听12 1监听2
 
-//#include "server.h"
+#include "server.h"
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -22,8 +22,20 @@
 
 #define BUFFER_SIZE 1024
 
-
+uint64_t int_sum_max;
 uint32_t num_bits;
+
+size_t send_out(const int sockfd, const void* const buf, const size_t len) {
+    size_t ret = send(sockfd, buf, len, 0);
+    if (ret <= 0) error_exit("Failed to send");
+    return ret;
+}
+
+int send_size(const int sockfd, const size_t x) {
+    size_t x_conv = htonl(x);
+    const char* data = (const char*) &x_conv;
+    return send(sockfd, data, sizeof(size_t), 0);
+}
 
 void bind_and_listen(sockaddr_in& addr, int& sockfd, const int port, const int reuse = 1) {
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -95,8 +107,47 @@ int recv_in(const int sockfd, void* const buf, const size_t len) {
 }
 
 // TODO bit_sum
-void bit_sum(){
+returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd, const int server_num, uint64_t& ans){
 	std::cout << "Doing BIT_SUM..." << std::endl;
+
+	std::unordered_map<std::string, bool> share_map;
+	auto start = clock_start();
+
+    BitShare share;
+    const unsigned int total_inputs = msg.num_of_inputs;
+
+    int num_bytes = 0;
+    for (unsigned int i = 0; i < total_inputs; i++) {
+        num_bytes += recv_in(clientfd, &share, sizeof(BitShare));
+        const std::string pk(share.pk, share.pk + PK_LENGTH);
+		std::cout << "Received pk: " << pk << ", share.val: " << share.val << std::endl;
+        if (share_map.find(pk) != share_map.end())
+            continue;
+        share_map[pk] = share.val;
+    }
+	
+    std::cout << "Received " << total_inputs << " total shares" << std::endl;
+    std::cout << "bytes from client: " << num_bytes << std::endl;
+    std::cout << "receive time: " << sec_from(start) << std::endl;
+
+//	start = clock_start();
+ //   auto start1 = clock_start();
+ //   auto start2 = clock_start();
+	int server_bytes = 0;
+
+    if (server_num == 1) {
+
+	}
+	else if (server_num == 2) {
+
+	}
+	else {
+
+	}
+
+	ans = 0;
+	return RET_ANS;
+
 }
 
 
@@ -243,7 +294,10 @@ int main(int argc, char** argv) {
             auto start = clock_start();
 
 			// TODO bit_sum
-			bit_sum();
+			uint64_t ans;
+			returnType ret = bit_sum(msg, newsockfd, serverfd, server_num, ans);
+			if (ret == RET_ANS)
+                std::cout << "Ans: " << ans << std::endl;
 
             std::cout << "Total time  : " << sec_from(start) << std::endl;
         }
@@ -275,7 +329,7 @@ int main(int argc, char** argv) {
             std::cout << "Total time  : " << sec_from(start) << std::endl;
 		}
 
-		break;
+	//	break;
 	}
 
 

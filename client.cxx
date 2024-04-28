@@ -185,7 +185,6 @@ int main(int argc, char** argv) {
 	// TODO client initialize 
 	std::cout << "Init constants: " << std::endl;
 
-	std::cout << "testing initMsg,,,, " << std::endl;
 
     initMsg msg;
     msg.num_of_inputs = numreqs;
