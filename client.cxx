@@ -21,6 +21,7 @@
 #define BUFFER_SIZE 1024
 
 uint32_t num_bits;
+uint64_t max_int;
 
 int sockfd0, sockfd1, sockfd2;
 
@@ -75,8 +76,8 @@ int bit_sum_helper(const std::string protocol, const size_t numreqs, unsigned in
         memcpy(bitshare2[i].pk, &pk[0], PK_LENGTH);
         bitshare2[i].val = share2;
 
-		std::cout << "TEST---------cilent i = " << i << std::endl;
-        std::cout << pk << ": " << real_val << " = " << bitshare0[i].val << " ^ " << bitshare1[i].val << " ^ " << bitshare2[i].val << std::endl;
+       // std::cout << pk << ": " << real_val << " = " << bitshare0[i].val << " ^ " << bitshare1[i].val << " ^ " << bitshare2[i].val << std::endl;
+        std::cout << "client" << i << ": " << real_val << " = " << bitshare0[i].val << " ^ " << bitshare1[i].val << " ^ " << bitshare2[i].val << std::endl;
     }
 
     if (numreqs > 1)
@@ -117,6 +118,82 @@ void bit_sum(const std::string protocol, const size_t numreqs) {
 	std::cout << "Total sent bytes: " << num_bytes << std::endl;
 }
 
+// TODO INT_SUM
+int int_sum_helper(const std::string protocol, const size_t numreqs, unsigned int &ans, const initMsg* const msg_ptr = nullptr) {
+    auto start = clock_start();
+    int num_bytes = 0;
+
+    uint64_t real_val, share0, share1, share2;
+
+    emp::PRG prg;
+
+	IntShare* const intshare0 = new IntShare[numreqs];
+	IntShare* const intshare1 = new IntShare[numreqs];
+	IntShare* const intshare2 = new IntShare[numreqs];
+
+	for (unsigned int i = 0; i < numreqs; i++) {
+		prg.random_data(&real_val, sizeof(uint64_t));
+		prg.random_data(&share0, sizeof(uint64_t));
+		prg.random_data(&share1, sizeof(uint64_t));
+        real_val = real_val % max_int;
+        share0 = share0 % max_int;
+        share1 = share1 % max_int;
+        share2 = share0 ^ share1 ^ real_val;
+        ans += real_val;
+
+		const std::string pk_s = make_pk(prg);
+		const char* const pk = pk_s.c_str();
+
+		memcpy(intshare0[i].pk, &pk[0], PK_LENGTH);
+		intshare0[i].val = share0;
+
+		memcpy(intshare1[i].pk, &pk[0], PK_LENGTH);
+		intshare1[i].val = share1;
+
+		memcpy(intshare2[i].pk, &pk[0], PK_LENGTH);
+		intshare2[i].val = share2;
+
+        std::cout << "client" << i << ": " << real_val << " = " << intshare0[i].val << " ^ " << intshare1[i].val << " ^ " << intshare2[i].val << std::endl;
+	}
+
+    if (numreqs > 1)
+        std::cout << "batch make:\t" << sec_from(start) << std::endl;
+
+    start = clock_start();
+    if (msg_ptr != nullptr) {
+        num_bytes += send_to_server(0, msg_ptr, sizeof(initMsg));
+        num_bytes += send_to_server(1, msg_ptr, sizeof(initMsg));
+        num_bytes += send_to_server(2, msg_ptr, sizeof(initMsg));
+	}
+    for (unsigned int i = 0; i < numreqs; i++) {
+        num_bytes += send_to_server(0, &intshare0[i], sizeof(IntShare));
+        num_bytes += send_to_server(1, &intshare1[i], sizeof(IntShare));
+        num_bytes += send_to_server(2, &intshare2[i], sizeof(IntShare));
+    }
+
+    delete[] intshare0;
+    delete[] intshare1;
+    delete[] intshare2;
+
+    if (numreqs > 1)
+        std::cout << "batch send:\t" << sec_from(start) << std::endl;
+
+    return num_bytes;
+}
+
+void int_sum(const std::string protocol, const size_t numreqs) {
+	unsigned int ans = 0;
+	int num_bytes = 0;
+	initMsg msg;
+	msg.num_of_inputs = numreqs;
+	msg.type = INT_SUM;
+
+	num_bytes += int_sum_helper(protocol, numreqs, ans, &msg);
+
+	std::cout << "Ans: " << ans << std::endl;
+	std::cout << "Total sent bytes: " << num_bytes << std::endl;
+}
+
 int main(int argc, char** argv) {
 	if (argc < 3) {
 		std::cout << "argument: client_num OPERATION" <<std::endl;
@@ -130,11 +207,11 @@ int main(int argc, char** argv) {
 	const std::string protocol(argv[2]);
 
 	num_bits = 8;
-	char buffer[BUFFER_SIZE];
-	std::cout << "num_bits:" << num_bits << std::endl;
+	std::cout << "num bits:" << num_bits << std::endl;
+	max_int = 1ULL << num_bits;
+	std::cout << "max int: " << max_int << std::endl;
 
 	// Set up server connections
-
     struct sockaddr_in server2, server1, server0;
 
     sockfd0 = socket(AF_INET, SOCK_STREAM, 0);
@@ -166,7 +243,8 @@ int main(int argc, char** argv) {
         error_exit("Can't connect to server2");
 
 	// test for send to server
-/*	const char *message0 = "Helloserver#0";	
+/*	
+	const char *message0 = "Helloserver#0";	
 	ssize_t bytes_sent = send(sockfd0, message0, strlen(message0), 0);
     if (bytes_sent < 0)
         error_exit("Error sending data to server");
@@ -177,8 +255,6 @@ int main(int argc, char** argv) {
 	const char *message2 = "Helloserver#2";	
 	bytes_sent = send(sockfd2, message2, strlen(message2), 0);
     if (bytes_sent < 0)
-	bytes_sent = send(sockfd2, buffer, strlen(buffer), 0);
-    if (bytes_sent < 0)
         error_exit("Error sending data to server");
 */
 	
@@ -188,40 +264,35 @@ int main(int argc, char** argv) {
 
     initMsg msg;
     msg.num_of_inputs = numreqs;
-/*
-    msg.type = BIT_SUM;
-	send_to_server(0, &msg, sizeof(initMsg));
-	send_to_server(1, &msg, sizeof(initMsg));
-	send_to_server(2, &msg, sizeof(initMsg));
-*/
 
 	auto start = clock_start();
 	if (protocol == "BITSUM") {
 		std::cout << "Uploading all BITSUM shares: " << numreqs << std::endl;
 
-		// TODO
+		// bit_sum
 		bit_sum(protocol, numreqs);
 
 		std::cout << "Total time:\t" << sec_from(start) << std::endl;
 	} 
 	else if (protocol == "INTSUM") {
-    	msg.type = INT_SUM;
+		std::cout << "Uploading all INTSUM shares: " << numreqs << std::endl;
 
-		// TODO  int_sum
+		// int_sum
+		int_sum(protocol, numreqs);
 
 		std::cout << "Total time:\t" << sec_from(start) << std::endl;
 	} 
 	else if (protocol == "ANDOP") {
-    	msg.type = AND_OP;
+		std::cout << "Uploading all ANDOP shares: " << numreqs << std::endl;
 
-		// TODO and 
+		// todo and 
 
 		std::cout << "Total time:\t" << sec_from(start) << std::endl;
 	} 
 	else if (protocol == "OROP") {
-    	msg.type = OR_OP;
+		std::cout << "Uploading all OROP shares: " << numreqs << std::endl;
 
-		// TODO or 
+		// todo or 
 
 		std::cout << "Total time:\t" << sec_from(start) << std::endl;
 	} 
@@ -229,8 +300,6 @@ int main(int argc, char** argv) {
 	else {
 		std::cout << "Unrecognized protocol" << std::endl;
 	}
-
-	std::cout << "Total time:\t" << sec_from(start) << std::endl;
 
     close(sockfd0);
     close(sockfd1);

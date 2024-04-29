@@ -61,7 +61,7 @@ void bind_and_listen(sockaddr_in& addr, int& sockfd, const int port, const int r
         error_exit("Listen failed");
 }
 
-// Symmetric: 0,1,2 connect to each other.
+// Server#0,1,2 connect to each other.
 void start_server(int& sockfd, int& newsockfd, const int port, const int reuse = 0) {
     sockaddr_in addr;
     bind_and_listen(addr, sockfd, port, reuse);
@@ -107,8 +107,7 @@ int recv_in(const int sockfd, void* const buf, const size_t len) {
 }
 
 // TODO bit_sum
-returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd, const int server_num, uint64_t& ans){
-	std::cout << "Doing BIT_SUM..." << std::endl;
+returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, uint64_t& ans){
 
 	std::unordered_map<std::string, bool> share_map;
 	auto start = clock_start();
@@ -120,7 +119,8 @@ returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd, co
     for (unsigned int i = 0; i < total_inputs; i++) {
         num_bytes += recv_in(clientfd, &share, sizeof(BitShare));
         const std::string pk(share.pk, share.pk + PK_LENGTH);
-		std::cout << "Received pk: " << pk << ", share.val: " << share.val << std::endl;
+		//std::cout << "Received pk: " << pk << ", share.val: " << share.val << std::endl;
+		std::cout <<  "Share[" << i << "] = " << share.val << std::endl;
         if (share_map.find(pk) != share_map.end())
             continue;
         share_map[pk] = share.val;
@@ -130,24 +130,79 @@ returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd, co
     std::cout << "bytes from client: " << num_bytes << std::endl;
     std::cout << "receive time: " << sec_from(start) << std::endl;
 
-//	start = clock_start();
- //   auto start1 = clock_start();
+	start = clock_start();
  //   auto start2 = clock_start();
 	int server_bytes = 0;
+	uint64_t result = 0;
 
     if (server_num == 1) {
+
+		
+		std::cout << "compute time: " << sec_from(start) << std::endl;
+
+		return RET_NO_ANS;
 
 	}
 	else if (server_num == 2) {
 
+
+		std::cout << "compute time: " << sec_from(start) << std::endl;
+
+		return RET_NO_ANS;
 	}
 	else {
 
+		uint64_t received_data;
+
+
+		std::cout << "compute time: " << sec_from(start) << std::endl;
+
+		ans = result;
+		return RET_ANS;
 	}
+}
 
-	ans = 0;
-	return RET_ANS;
+// TODO int_sum
+returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, uint64_t& ans){
 
+    std::unordered_map<std::string, uint64_t> share_map;
+    auto start = clock_start();
+
+    IntShare share;
+    const uint64_t max_val = 1ULL << num_bits;
+    const unsigned int total_inputs = msg.num_of_inputs;
+    const size_t nbits[1] = {num_bits};
+
+    int num_bytes = 0;
+    for (unsigned int i = 0; i < total_inputs; i++) {
+        num_bytes += recv_in(clientfd, &share, sizeof(IntShare));
+        const std::string pk(share.pk, share.pk + PK_LENGTH);
+
+        if (share_map.find(pk) != share_map.end()
+            or share.val >= max_val)
+            continue;
+        share_map[pk] = share.val;
+
+        std::cout << "share[" << i << "] = " << share.val << std::endl;
+    }
+
+    std::cout << "Received " << total_inputs << " total shares" << std::endl;
+    std::cout << "bytes from client: " << num_bytes << std::endl;
+    std::cout << "receive time: " << sec_from(start) << std::endl;
+
+	if (server_num == 1){
+
+		return RET_NO_ANS;	
+	}
+	else if (server_num == 2){
+
+		return RET_NO_ANS;	
+	}
+	else {
+	
+		ans = 0;
+		return RET_ANS;
+	}
 }
 
 
@@ -170,7 +225,6 @@ int main(int argc, char** argv) {
 
 	std::cout << "This server is server #" << server_num << std::endl;
 	std::cout << " Listening for client on " << client_port << std::endl;
-//	std::cout << " Listening for server on" << server_port << std::endl;
 
 	num_bits = 8;
 	char buffer[BUFFER_SIZE];
@@ -266,6 +320,7 @@ int main(int argc, char** argv) {
 
 	//TODO: precomputation ..
 
+
 	int sockfd, newsockfd;
     sockaddr_in addr;
 
@@ -274,7 +329,7 @@ int main(int argc, char** argv) {
 	while (1) {
 		socklen_t addrlen = sizeof(addr);
 
-		std::cout << "waiting for connection..." << std::endl;
+		std::cout << std::endl << "waiting for connection..." << std::endl;
 
 		newsockfd = accept(sockfd, (struct sockaddr*)&addr, &addrlen);
         if (newsockfd < 0) error_exit("Connection creation failure");
@@ -293,9 +348,9 @@ int main(int argc, char** argv) {
             std::cout << "BIT_SUM" << std::endl;
             auto start = clock_start();
 
-			// TODO bit_sum
+			//  bit_sum
 			uint64_t ans;
-			returnType ret = bit_sum(msg, newsockfd, serverfd, server_num, ans);
+			returnType ret = bit_sum(msg, newsockfd, serverfd0, serverfd, server_num, ans);
 			if (ret == RET_ANS)
                 std::cout << "Ans: " << ans << std::endl;
 
@@ -305,8 +360,11 @@ int main(int argc, char** argv) {
             std::cout << "INT_SUM" << std::endl;
             auto start = clock_start();
 
-			// TODO int_sum
-            std::cout << "Doing INT_SUM..." << std::endl;
+			//  int_sum
+			uint64_t ans;
+			returnType ret = int_sum(msg, newsockfd, serverfd0, serverfd, server_num, ans);
+			if (ret == RET_ANS)
+                std::cout << "Ans: " << ans << std::endl;
 
             std::cout << "Total time  : " << sec_from(start) << std::endl;
 		}
