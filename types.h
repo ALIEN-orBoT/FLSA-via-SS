@@ -2,13 +2,20 @@
 #define TYPES_H
 
 #define PK_LENGTH 32
+#define MAX_INT 64
 
 struct BitShare {
     char pk[PK_LENGTH];
     bool val;
 };
 
-// For INT_SUM, AND_OP, OR_OP
+// For INT_SUM
+struct IntSumShare {
+    char pk[PK_LENGTH];
+    char val[MAX_INT];
+};
+
+// For AND_OP, OR_OP
 struct IntShare {
     char pk[PK_LENGTH];
     uint64_t val;

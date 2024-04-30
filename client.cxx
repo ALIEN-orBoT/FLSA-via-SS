@@ -6,10 +6,12 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <bitset>
 
 #include "types.h"
 #include "utils.h"
@@ -118,42 +120,62 @@ void bit_sum(const std::string protocol, const size_t numreqs) {
 	std::cout << "Total sent bytes: " << num_bytes << std::endl;
 }
 
-// TODO INT_SUM
+// 将 uint64_t 存储的数据的后n位转换为二进制字符串
+std::string uint64LastNToBinaryString(uint64_t num, int n) {
+    // 获取后n位数据
+    uint64_t lastN = num & ((1ULL << n) - 1);
+
+    // 将后n位数据转换为二进制字符串
+    return std::bitset<64>(lastN).to_string().substr(64 - n);
+}
+
+// 将二进制字符串分成三部分
+void splitBinaryString(const std::string& binaryString, std::string& part1, std::string& part2, std::string& part3) {
+    int length = binaryString.length();
+    int partLength = length / 3;
+
+    part1 = binaryString.substr(0, partLength);
+    part2 = binaryString.substr(partLength, partLength);
+    part3 = binaryString.substr(2 * partLength, length - 2 * partLength);
+}
+
 int int_sum_helper(const std::string protocol, const size_t numreqs, unsigned int &ans, const initMsg* const msg_ptr = nullptr) {
     auto start = clock_start();
     int num_bytes = 0;
 
-    uint64_t real_val, share0, share1, share2;
+    uint64_t real_val; 
+//	share0, share1, share2;
+	std::string shar0, shar1, shar2;
 
     emp::PRG prg;
 
-	IntShare* const intshare0 = new IntShare[numreqs];
-	IntShare* const intshare1 = new IntShare[numreqs];
-	IntShare* const intshare2 = new IntShare[numreqs];
+	IntSumShare* const intshare0 = new IntSumShare[numreqs];
+	IntSumShare* const intshare1 = new IntSumShare[numreqs];
+	IntSumShare* const intshare2 = new IntSumShare[numreqs];
 
 	for (unsigned int i = 0; i < numreqs; i++) {
 		prg.random_data(&real_val, sizeof(uint64_t));
-		prg.random_data(&share0, sizeof(uint64_t));
-		prg.random_data(&share1, sizeof(uint64_t));
         real_val = real_val % max_int;
-        share0 = share0 % max_int;
-        share1 = share1 % max_int;
-        share2 = share0 ^ share1 ^ real_val;
+		std::string binaryString = uint64LastNToBinaryString(real_val, num_bits); // 获取后num_bits位并转换为二进制字符串
         ans += real_val;
+		splitBinaryString(binaryString, shar0, shar1, shar2);
 
 		const std::string pk_s = make_pk(prg);
 		const char* const pk = pk_s.c_str();
+		const char* const share0 = shar0.c_str();
+		const char* const share1 = shar1.c_str();
+		const char* const share2 = shar2.c_str();
 
 		memcpy(intshare0[i].pk, &pk[0], PK_LENGTH);
-		intshare0[i].val = share0;
+		memcpy(intshare0[i].val, &share0[0], num_bits);
 
 		memcpy(intshare1[i].pk, &pk[0], PK_LENGTH);
-		intshare1[i].val = share1;
+		memcpy(intshare1[i].val, &share1[0], num_bits);
 
 		memcpy(intshare2[i].pk, &pk[0], PK_LENGTH);
-		intshare2[i].val = share2;
+		memcpy(intshare2[i].val, &share2[0], num_bits);
 
-        std::cout << "client" << i << ": " << real_val << " = " << intshare0[i].val << " ^ " << intshare1[i].val << " ^ " << intshare2[i].val << std::endl;
+        std::cout << "client" << i << ": " << real_val << " = " << intshare0[i].val << " | " << intshare1[i].val << " | " << intshare2[i].val << std::endl;
 	}
 
     if (numreqs > 1)
@@ -166,9 +188,9 @@ int int_sum_helper(const std::string protocol, const size_t numreqs, unsigned in
         num_bytes += send_to_server(2, msg_ptr, sizeof(initMsg));
 	}
     for (unsigned int i = 0; i < numreqs; i++) {
-        num_bytes += send_to_server(0, &intshare0[i], sizeof(IntShare));
-        num_bytes += send_to_server(1, &intshare1[i], sizeof(IntShare));
-        num_bytes += send_to_server(2, &intshare2[i], sizeof(IntShare));
+        num_bytes += send_to_server(0, &intshare0[i], sizeof(IntSumShare));
+        num_bytes += send_to_server(1, &intshare1[i], sizeof(IntSumShare));
+        num_bytes += send_to_server(2, &intshare2[i], sizeof(IntSumShare));
     }
 
     delete[] intshare0;

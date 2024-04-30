@@ -162,27 +162,34 @@ returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 	}
 }
 
+// 将二进制字符串转换为 uint64_t 数据
+uint64_t binaryStringToUint64(const std::string& binaryString) {
+    std::bitset<64> bits(binaryString);
+    return bits.to_ullong();
+}
+
 // TODO int_sum
 returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, uint64_t& ans){
 
-    std::unordered_map<std::string, uint64_t> share_map;
+    std::unordered_map<std::string, std::string> share_map;
     auto start = clock_start();
 
-    IntShare share;
+    IntSumShare share;
     const uint64_t max_val = 1ULL << num_bits;
     const unsigned int total_inputs = msg.num_of_inputs;
-    const size_t nbits[1] = {num_bits};
 
     int num_bytes = 0;
     for (unsigned int i = 0; i < total_inputs; i++) {
-        num_bytes += recv_in(clientfd, &share, sizeof(IntShare));
+        num_bytes += recv_in(clientfd, &share, sizeof(IntSumShare));
         const std::string pk(share.pk, share.pk + PK_LENGTH);
 
-        if (share_map.find(pk) != share_map.end()
-            or share.val >= max_val)
+        if (share_map.find(pk) != share_map.end())
             continue;
+//        share_map[pk] = std::string(share.val, sizeof(share.val));
         share_map[pk] = share.val;
 
+//		std::cout << "strlen of share:" << strlen(share.val) << std::endl;
+//		std::cout << "sizeof of share:" << sizeof(share.val) << std::endl;
         std::cout << "share[" << i << "] = " << share.val << std::endl;
     }
 
@@ -190,18 +197,96 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
     std::cout << "bytes from client: " << num_bytes << std::endl;
     std::cout << "receive time: " << sec_from(start) << std::endl;
 
-	if (server_num == 1){
+	int length0 = num_bits / 3;
+	int length1 = num_bits / 3;
+	int remainder = num_bits - length0 - length1;
 
-		return RET_NO_ANS;	
-	}
-	else if (server_num == 2){
+	ssize_t invaild;
+	char key[PK_LENGTH];
+	uint64_t result = 0;
+	uint64_t data;
+	if (server_num == 0){
+/*
+		for (auto it = share_map.begin(); it != share_map.end();) {
+			if (length(it->second) > length0) {
+				// Prodecure the invaild data
+				const std::string& key = it->first;
+				ssize_t sent_invaild = send(serverfd0, key.data(), sizeof(pk), 0);
+				sent_invaild = send(serverfd, key.data(), sizeof(pk), 0);
+				share_map.erase(it->first);	
+			} else {
+				++it;
+			}
+		}
+*/		
+		for (auto it = share_map.begin(); it != share_map.end(); ++it) {
+			result += binaryStringToUint64(it->second);
+		}
+		result = result << (length1+remainder);
+		std::cout << "result0 = " << result << std::endl;
+		ans = result;
 
-		return RET_NO_ANS;	
-	}
-	else {
-	
-		ans = 0;
+		int bytes_received = recv(serverfd0, &data, sizeof(uint64_t), 0);
+		if (bytes_received != sizeof(uint64_t)) {
+			error_exit("receive error from #1.");
+		}
+		ans += data;
+		memset(&data, 0, sizeof(uint64_t));
+		bytes_received = recv(serverfd, &data, sizeof(uint64_t), 0);
+		if (bytes_received != sizeof(uint64_t)) {
+			error_exit("receive error from #2.");
+		}
+		ans += data;
 		return RET_ANS;
+	}
+
+	else if (server_num == 1){
+/*
+		invaild = recv(serverfd0, key, PK_LENGTH, 0);
+		if (invaild < 0) {
+			std::cout << "no invaild data received" << std::endl;
+		}
+		else {
+			auto it = share_map.find(key_str);
+			if (it != share_map.end()) 
+				share_map.erase(it);
+		}	
+*/
+		for (auto it = share_map.begin(); it != share_map.end(); ++it) {
+			result += binaryStringToUint64(it->second);
+		}
+		result = result << remainder;	
+		std::cout << "result1 = " << result << std::endl; 
+
+		int bytes_sent = send(serverfd0, &result, sizeof(uint64_t), 0);
+		if (bytes_sent != sizeof(uint64_t)) 
+			error_exit("send error to #0");
+
+		return RET_NO_ANS;	
+	}
+
+	else {
+/*
+		invaild = recv(serverfd0, key, PK_LENGTH, 0);
+		if (invaild < 0) {
+			std::cout << "no invaild data received" << std::endl;
+		}
+		else {
+			auto it = share_map.find(key_str);
+			if (it != share_map.end()) 
+				share_map.erase(it);
+		}	
+*/
+		for (auto it = share_map.begin(); it != share_map.end(); ++it) {
+			result += binaryStringToUint64(it->second);
+		}
+		std::cout << "result2 = " << result << std::endl; 
+
+		int bytes_sent = send(serverfd0, &result, sizeof(uint64_t), 0);
+		if (bytes_sent != sizeof(uint64_t)) 
+			error_exit("Send error to #0");
+
+		return RET_NO_ANS;	
 	}
 }
 
