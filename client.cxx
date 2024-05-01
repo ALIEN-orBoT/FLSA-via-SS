@@ -216,6 +216,99 @@ void int_sum(const std::string protocol, const size_t numreqs) {
 	std::cout << "Total sent bytes: " << num_bytes << std::endl;
 }
 
+// TODO and or
+int xor_op_helper(const std::string protocol, const size_t numreqs,
+                  bool &ans, const initMsg* const msg_ptr = nullptr) {
+	auto start = clock_start();
+	int num_bytes = 0;
+	
+	bool value;
+	uint64_t encoded, share0, share1, share2;
+
+	emp::PRG prg;
+	
+	IntShare* const intshare0 = new IntShare[numreqs];
+	IntShare* const intshare1 = new IntShare[numreqs];
+	IntShare* const intshare2 = new IntShare[numreqs];
+
+	for (unsigned int i = 0; i < numreqs; i++) {
+		prg.random_bool(&value, 1);
+		if (protocol == "ANDOP") {
+			ans &=value;
+			if (value)
+				encoded = 0;
+			else	
+				prg.random_data(&encoded, sizeof(uint64_t));
+		} else if (protocol == "OROP") {
+			ans |= value;
+			if (not value)
+				encoded = 0;
+			else
+				prg.random_data(&encoded, sizeof(uint64_t));
+		}
+		prg.random_data(&share0, sizeof(uint64_t));
+		prg.random_data(&share1, sizeof(uint64_t));
+		share2 = share0 ^ share1 ^ encoded;	
+	
+        const std::string pk_s = make_pk(prg);
+        const char* const pk = pk_s.c_str();
+
+        memcpy(intshare0[i].pk, &pk[0], PK_LENGTH);
+        intshare0[i].val = share0;
+
+        memcpy(intshare1[i].pk, &pk[0], PK_LENGTH);
+        intshare1[i].val = share1;
+
+        memcpy(intshare2[i].pk, &pk[0], PK_LENGTH);
+        intshare2[i].val = share2;
+
+        std::cout << "client" << i << ": " << encoded << " = " << intshare0[i].val << " ^ " << intshare1[i].val << " ^ " << intshare2[i].val << std::endl;
+	}
+	if (numreqs > 1)
+        std::cout << "batch make:\t" << sec_from(start) << std::endl;
+    start = clock_start();
+    if (msg_ptr != nullptr) {
+        num_bytes += send_to_server(0, msg_ptr, sizeof(initMsg));
+        num_bytes += send_to_server(1, msg_ptr, sizeof(initMsg));
+        num_bytes += send_to_server(2, msg_ptr, sizeof(initMsg));
+    }
+    for (unsigned int i = 0; i < numreqs; i++) {
+        num_bytes += send_to_server(0, &intshare0[i], sizeof(IntShare));
+        num_bytes += send_to_server(1, &intshare1[i], sizeof(IntShare));
+        num_bytes += send_to_server(2, &intshare2[i], sizeof(IntShare));
+    }
+
+    delete[] intshare0;
+    delete[] intshare1;
+    delete[] intshare2;
+
+	if (numreqs > 1)
+        std::cout << "batch send:\t" << sec_from(start) << std::endl;
+
+    return num_bytes;
+}
+
+void xor_op(const std::string protocol, const size_t numreqs) {
+	bool ans;
+	int num_bytes = 0;
+	initMsg msg;
+	msg.num_of_inputs = numreqs;
+	if (protocol == "ANDOP") {
+		msg.type = AND_OP;
+		ans = true;
+	} else if (protocol == "OROP") {
+		msg.type = OR_OP;
+		ans = false;
+	} else {
+		return;
+	}
+
+	num_bytes += xor_op_helper(protocol, numreqs, ans, &msg);
+
+	std::cout << "Ans : " << std::boolalpha << ans << std::endl;
+	std::cout << "Total sent bytes: " << num_bytes << std::endl;
+}
+
 int main(int argc, char** argv) {
 	if (argc < 3) {
 		std::cout << "argument: client_num OPERATION" <<std::endl;
@@ -281,7 +374,7 @@ int main(int argc, char** argv) {
 */
 	
 	// TODO client initialize 
-	std::cout << "Init constants: " << std::endl;
+//	std::cout << "Init constants: " << std::endl;
 
 
     initMsg msg;
@@ -305,22 +398,29 @@ int main(int argc, char** argv) {
 		std::cout << "Total time:\t" << sec_from(start) << std::endl;
 	} 
 	else if (protocol == "ANDOP") {
-		std::cout << "Uploading all ANDOP shares: " << numreqs << std::endl;
+		std::cout << "Uploading all AND shares: " << numreqs << std::endl;
 
-		// todo and 
+		// and 
+		xor_op(protocol, numreqs);
 
 		std::cout << "Total time:\t" << sec_from(start) << std::endl;
 	} 
 	else if (protocol == "OROP") {
-		std::cout << "Uploading all OROP shares: " << numreqs << std::endl;
+		std::cout << "Uploading all OR shares: " << numreqs << std::endl;
 
-		// todo or 
+		// or 
+		xor_op(protocol, numreqs);
 
 		std::cout << "Total time:\t" << sec_from(start) << std::endl;
 	} 
 
 	else {
 		std::cout << "Unrecognized protocol" << std::endl;
+		initMsg msg;
+        msg.type = NONE_OP;
+        send_to_server(0, &msg, sizeof(initMsg));
+        send_to_server(1, &msg, sizeof(initMsg));
+        send_to_server(2, &msg, sizeof(initMsg));
 	}
 
     close(sockfd0);

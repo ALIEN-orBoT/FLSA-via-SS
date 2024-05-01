@@ -16,11 +16,23 @@
 #include "types.h"
 #include "utils.h"
 
+#if !defined(htonll) && !defined(ntohll)
+#if __BIG_ENDIAN__
+# define htonll(x) (x)
+# define ntohll(x) (x)
+#else
+# define htonll(x) (((uint64_t)htonl((x) & 0xFFFFFFFF) << 32) | htonl((x) >> 32))
+# define ntohll(x) (((uint64_t)ntohl((x) & 0xFFFFFFFF) << 32) | ntohl((x) >> 32))
+#endif
+#endif
+
 #define SERVER0_IP "127.0.0.1"
 #define SERVER1_IP "127.0.0.1"
 #define SERVER2_IP "127.0.0.1"
 
 #define BUFFER_SIZE 1024
+
+#define INVALID_THRESHOLD 0.5
 
 uint64_t int_sum_max;
 uint32_t num_bits;
@@ -50,6 +62,18 @@ int send_size(const int sockfd, const size_t x) {
 int recv_size(const int sockfd, size_t& x) {
     int ret = recv_in(sockfd, &x, sizeof(size_t));
     x = ntohl(x);
+    return ret;
+}
+
+int send_uint64(const int sockfd, const uint64_t x) {
+    uint64_t x_conv = htonll(x);
+    const char* data = (const char*) &x_conv;
+    return send(sockfd, data, sizeof(uint64_t), 0);
+}
+
+int recv_uint64(const int sockfd, uint64_t& x) {
+    int ret = recv_in(sockfd, &x, sizeof(uint64_t));
+    x = ntohll(x);
     return ret;
 }
 
@@ -334,6 +358,179 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 	}
 }
 
+int send_bool_batch(const int sockfd, const bool* const x, const size_t n) {
+    const size_t len = (n+7) / 8;  // Number of bytes to hold n, aka ceil(n/8)
+    char* buf = new char[len];
+
+    memset(buf, 0, sizeof(char) * len);
+
+    for (unsigned int i = 0; i < n; i++)
+        if (x[i])
+            buf[i / 8] ^= (1 << (i % 8));
+
+    int ret = send(sockfd, buf, len, 0);
+
+    delete[] buf;
+
+    return ret;
+}
+
+int recv_bool_batch(const int sockfd, bool* const x, const size_t n) {
+    const size_t len = (n+7) / 8;
+    char* buf = new char[len];
+
+    int ret = recv_in(sockfd, buf, len);
+
+    for (unsigned int i = 0; i < n; i++)
+        x[i] = (buf[i/8] & (1 << (i % 8)));
+
+    delete[] buf;
+
+    return ret;
+}
+
+// TODO AND OR 
+returnType xor_op(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, bool& ans) {
+    std::unordered_map<std::string, uint64_t> share_map;
+    auto start = clock_start();
+
+    IntShare share;
+    const unsigned int total_inputs = msg.num_of_inputs;
+
+    int num_bytes = 0;
+    for (unsigned int i = 0; i < total_inputs; i++) {
+        num_bytes += recv_in(clientfd, &share, sizeof(IntShare));
+        const std::string pk(share.pk, share.pk + PK_LENGTH);
+
+        if (share_map.find(pk) != share_map.end())
+            continue;
+        share_map[pk] = share.val;
+        std::cout << "share[" << i << "] = " << share.val << std::endl;
+    }
+
+	std::cout << "Received " << total_inputs << " total shares" << std::endl;
+    std::cout << "bytes from client: " << num_bytes << std::endl;
+    std::cout << "receive time: " << sec_from(start) << std::endl;
+    start = clock_start();
+    auto start2 = clock_start();
+
+    int server_bytes = 0;
+
+	if (server_num == 0) {
+		// verify
+		size_t num_inputs, num_valid = 0;
+        recv_size(serverfd0, num_inputs);
+        recv_size(serverfd, num_inputs);
+        uint64_t a = 0;
+        bool* const valid = new bool[num_inputs];
+
+        for (unsigned int i = 0; i < num_inputs; i++) {
+            const std::string pk = get_pk(serverfd0);
+            const std::string pk2 = get_pk(serverfd);
+            valid[i] = (share_map.find(pk) != share_map.end());
+            if (!valid[i])
+                continue;
+            num_valid++;
+            a ^= share_map[pk];
+        }
+
+        std::cout << "verify + convert time: " << sec_from(start2) << std::endl;
+		start2 = clock_start();
+
+		server_bytes += send_bool_batch(serverfd0, valid, num_inputs);
+		server_bytes += send_bool_batch(serverfd, valid, num_inputs);
+
+		delete[] valid;
+		
+		uint64_t b, c;
+		recv_uint64(serverfd0, b);
+		recv_uint64(serverfd, c);	
+		const uint64_t aggr = a ^ b ^ c;
+	
+		std::cout << "Final valid count: " << num_valid << " / " << total_inputs << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
+        if (num_valid < total_inputs * (1 - INVALID_THRESHOLD)) {
+            std::cout << "Failing, This is less than the invalid threshold of " << INVALID_THRESHOLD << std::endl;
+            return RET_INVALID;
+        }
+
+		if (msg.type == AND_OP) {
+            ans = (aggr == 0);
+        } else if (msg.type == OR_OP) {
+            ans = (aggr != 0);
+        } else {
+            error_exit("Message type incorrect for xor_op");
+        }
+		return RET_ANS;
+	}
+
+	else if (server_num == 1) {
+		// verify
+		const size_t num_inputs = share_map.size();
+        server_bytes += send_size(serverfd0, num_inputs);
+        uint64_t b = 0;
+        std::string* const pk_list = new std::string[num_inputs];
+        size_t idx = 0;
+        for (const auto& share : share_map) {
+            server_bytes += send_out(serverfd0, &share.first[0], PK_LENGTH);
+            pk_list[idx] = share.first;
+            idx++;
+        }
+        std::cout << "verify time: " << sec_from(start2) << std::endl;
+		start2 = clock_start();
+
+        bool* const other_valid = new bool[num_inputs];
+        recv_bool_batch(serverfd0, other_valid, num_inputs);
+        for (unsigned int i = 0; i < num_inputs; i++) {
+            if (!other_valid[i])
+                continue;
+            b ^= share_map[pk_list[i]];
+        }
+        delete[] other_valid;
+
+        send_uint64(serverfd0, b);
+        delete[] pk_list;
+        std::cout << "convert time: " << sec_from(start2) << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
+
+		return RET_NO_ANS;
+	}
+
+	else {
+		// verify 
+		const size_t num_inputs = share_map.size();
+        server_bytes += send_size(serverfd0, num_inputs);
+        uint64_t c = 0;
+        std::string* const pk_list = new std::string[num_inputs];
+        size_t idx = 0;
+        for (const auto& share : share_map) {
+            server_bytes += send_out(serverfd0, &share.first[0], PK_LENGTH);
+            pk_list[idx] = share.first;
+            idx++;
+        }
+        std::cout << "verify time: " << sec_from(start2) << std::endl;
+		start2 = clock_start();
+
+        bool* const other_valid = new bool[num_inputs];
+        recv_bool_batch(serverfd0, other_valid, num_inputs);
+        for (unsigned int i = 0; i < num_inputs; i++) {
+            if (!other_valid[i])
+                continue;
+            c ^= share_map[pk_list[i]];
+        }
+        delete[] other_valid;
+
+        send_uint64(serverfd0, c);
+        delete[] pk_list;
+        std::cout << "convert time: " << sec_from(start2) << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
+
+		return RET_NO_ANS;
+	}
+}
 
 int main(int argc, char** argv) {
 
@@ -501,8 +698,11 @@ int main(int argc, char** argv) {
             std::cout << "AND_OP" << std::endl;
             auto start = clock_start();
 
-			// TODO and 
-            std::cout << "Doing AND_OP...." << std::endl;
+			//  and 
+			bool ans;
+			returnType ret = xor_op(msg, newsockfd, serverfd0, serverfd, server_num, ans);
+			if (ret == RET_ANS)
+                std::cout << "Ans: " << std::boolalpha << ans << std::endl;
 
             std::cout << "Total time  : " << sec_from(start) << std::endl;
 		}
@@ -510,11 +710,22 @@ int main(int argc, char** argv) {
             std::cout << "OR_OP" << std::endl;
             auto start = clock_start();
 
-			// TODO or
-            std::cout << "Doing OR_OP...:." << std::endl;
+			//  or
+			bool ans;
+			returnType ret = xor_op(msg, newsockfd, serverfd0, serverfd, server_num, ans);
+			if (ret == RET_ANS)
+                std::cout << "Ans: " << std::boolalpha << ans << std::endl;
 
             std::cout << "Total time  : " << sec_from(start) << std::endl;
 		}
+
+		else if (msg.type == NONE_OP) {
+            std::cout << "Empty client message" << std::endl;
+        } 
+
+		else {
+            std::cout << "Unrecognized message type: " << msg.type << std::endl;
+        }
 
 	//	break;
 	}
