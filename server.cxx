@@ -31,10 +31,33 @@ size_t send_out(const int sockfd, const void* const buf, const size_t len) {
     return ret;
 }
 
+int recv_in(const int sockfd, void* const buf, const size_t len) {
+    unsigned int bytes_read = 0, tmp;
+    char* bufptr = (char*) buf;
+    while (bytes_read < len) {
+        tmp = recv(sockfd, bufptr + bytes_read, len - bytes_read, 0);
+        if (tmp <= 0) return tmp; else bytes_read += tmp;
+    }
+    return bytes_read;
+}
+
 int send_size(const int sockfd, const size_t x) {
     size_t x_conv = htonl(x);
     const char* data = (const char*) &x_conv;
     return send(sockfd, data, sizeof(size_t), 0);
+}
+
+int recv_size(const int sockfd, size_t& x) {
+    int ret = recv_in(sockfd, &x, sizeof(size_t));
+    x = ntohl(x);
+    return ret;
+}
+
+std::string get_pk(const int serverfd) {
+    char pk_buf[PK_LENGTH];
+    recv_in(serverfd, &pk_buf[0], PK_LENGTH);
+    std::string pk(pk_buf, pk_buf + PK_LENGTH);
+    return pk;
 }
 
 void bind_and_listen(sockaddr_in& addr, int& sockfd, const int port, const int reuse = 1) {
@@ -96,17 +119,6 @@ void server_connect(int& sockfd, const int port, const int reuse = 0) {
 }
 
 
-int recv_in(const int sockfd, void* const buf, const size_t len) {
-    unsigned int bytes_read = 0, tmp;
-    char* bufptr = (char*) buf;
-    while (bytes_read < len) {
-        tmp = recv(sockfd, bufptr + bytes_read, len - bytes_read, 0);
-        if (tmp <= 0) return tmp; else bytes_read += tmp;
-    }
-    return bytes_read;
-}
-
-// TODO bit_sum
 returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, uint64_t& ans){
 
 	std::unordered_map<std::string, bool> share_map;
@@ -135,6 +147,7 @@ returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 	int server_bytes = 0;
 	uint64_t result = 0;
 
+// TODO bit_sum
     if (server_num == 1) {
 
 		
@@ -168,7 +181,6 @@ uint64_t binaryStringToUint64(const std::string& binaryString) {
     return bits.to_ullong();
 }
 
-// TODO int_sum
 returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, uint64_t& ans){
 
     std::unordered_map<std::string, std::string> share_map;
@@ -185,7 +197,7 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 
         if (share_map.find(pk) != share_map.end())
             continue;
-//        share_map[pk] = std::string(share.val, sizeof(share.val));
+	//	share_map[pk] = std::string(share.val, sizeof(share.val));
         share_map[pk] = share.val;
 
 //		std::cout << "strlen of share:" << strlen(share.val) << std::endl;
@@ -201,24 +213,38 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 	int length1 = num_bits / 3;
 	int remainder = num_bits - length0 - length1;
 
-	ssize_t invaild;
-	char key[PK_LENGTH];
+	start = clock_start(); //for compute time
+	auto start2 = clock_start(); //for verify time
+
 	uint64_t result = 0;
 	uint64_t data;
+	int server_bytes = 0;
+
 	if (server_num == 0){
-/*
-		for (auto it = share_map.begin(); it != share_map.end();) {
-			if (length(it->second) > length0) {
-				// Prodecure the invaild data
-				const std::string& key = it->first;
-				ssize_t sent_invaild = send(serverfd0, key.data(), sizeof(pk), 0);
-				sent_invaild = send(serverfd, key.data(), sizeof(pk), 0);
-				share_map.erase(it->first);	
-			} else {
-				++it;
-			}
-		}
-*/		
+		size_t num_inputs, num_valid = 0;
+        recv_size(serverfd0, num_inputs);
+        recv_size(serverfd, num_inputs);
+		uint64_t** const shares = new uint64_t*[num_inputs];
+        bool* const valid = new bool[num_inputs];
+
+        for (unsigned int i = 0; i < num_inputs; i++) {
+            const std::string pk = get_pk(serverfd0);
+            const std::string pk2 = get_pk(serverfd);
+
+            bool is_valid = (share_map.find(pk) != share_map.end()
+							and share_map.find(pk2) != share_map.end() );
+            valid[i] = is_valid;
+			shares[i] = new uint64_t[1];
+            if (!is_valid)
+                continue;
+            num_valid++;
+            shares[i][0] = binaryStringToUint64(share_map[pk]);
+        }
+
+		std::cout << "verify time: " << sec_from(start2) << std::endl;
+
+		start2 = clock_start(); //for convert time
+
 		for (auto it = share_map.begin(); it != share_map.end(); ++it) {
 			result += binaryStringToUint64(it->second);
 		}
@@ -236,22 +262,30 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		if (bytes_received != sizeof(uint64_t)) {
 			error_exit("receive error from #2.");
 		}
+
+		std::cout << "Final valid count: " << num_valid << " / " << total_inputs << std::endl;
+		std::cout << "convert time: " << sec_from(start2) << std::endl;		
+		std::cout << "compute time: " << sec_from(start) << std::endl;		
+
 		ans += data;
 		return RET_ANS;
 	}
 
 	else if (server_num == 1){
-/*
-		invaild = recv(serverfd0, key, PK_LENGTH, 0);
-		if (invaild < 0) {
-			std::cout << "no invaild data received" << std::endl;
-		}
-		else {
-			auto it = share_map.find(key_str);
-			if (it != share_map.end()) 
-				share_map.erase(it);
-		}	
-*/
+		const size_t num_inputs = share_map.size();
+		server_bytes += send_size(serverfd0, num_inputs);
+		uint64_t** const shares = new uint64_t*[num_inputs];
+        int i = 0;
+        for (const auto& share : share_map) {
+            server_bytes += send_out(serverfd0, &share.first[0], PK_LENGTH);
+            shares[i] = new uint64_t[1];
+            shares[i][0] = binaryStringToUint64(share.second);
+            i++;
+        }
+		std::cout << "verify time: " << sec_from(start2) << std::endl;
+
+		start2 = clock_start(); //for convert time
+
 		for (auto it = share_map.begin(); it != share_map.end(); ++it) {
 			result += binaryStringToUint64(it->second);
 		}
@@ -262,21 +296,28 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		if (bytes_sent != sizeof(uint64_t)) 
 			error_exit("send error to #0");
 
+		std::cout << "convert time: " << sec_from(start2) << std::endl;		
+		std::cout << "compute time: " << sec_from(start) << std::endl;		
+
 		return RET_NO_ANS;	
 	}
 
 	else {
-/*
-		invaild = recv(serverfd0, key, PK_LENGTH, 0);
-		if (invaild < 0) {
-			std::cout << "no invaild data received" << std::endl;
-		}
-		else {
-			auto it = share_map.find(key_str);
-			if (it != share_map.end()) 
-				share_map.erase(it);
-		}	
-*/
+		const size_t num_inputs = share_map.size();
+		server_bytes += send_size(serverfd0, num_inputs);
+		uint64_t** const shares = new uint64_t*[num_inputs];
+        int i = 0;
+        for (const auto& share : share_map) {
+            server_bytes += send_out(serverfd0, &share.first[0], PK_LENGTH);
+            shares[i] = new uint64_t[1];
+            shares[i][0] = binaryStringToUint64(share.second);
+            i++;
+        }
+
+		std::cout << "verify time: " << sec_from(start2) << std::endl;
+
+		start2 = clock_start(); //for convert time
+
 		for (auto it = share_map.begin(); it != share_map.end(); ++it) {
 			result += binaryStringToUint64(it->second);
 		}
@@ -285,6 +326,9 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		int bytes_sent = send(serverfd0, &result, sizeof(uint64_t), 0);
 		if (bytes_sent != sizeof(uint64_t)) 
 			error_exit("Send error to #0");
+
+		std::cout << "convert time: " << sec_from(start2) << std::endl;		
+		std::cout << "compute time: " << sec_from(start) << std::endl;		
 
 		return RET_NO_ANS;	
 	}
