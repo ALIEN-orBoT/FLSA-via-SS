@@ -1,6 +1,7 @@
 #ifndef SERVER_H
 #define SERVER_H
 
+#include "net_share.h"
 
 // Return type of different ops
 enum returnType {

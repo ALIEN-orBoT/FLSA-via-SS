@@ -52,6 +52,7 @@ struct FreqShare {
 enum messageType {
     NONE_OP,
     BIT_SUM,
+	INT_SUM_SPLIT,
     INT_SUM,
     AND_OP,
     OR_OP,
@@ -60,7 +61,7 @@ enum messageType {
     VAR_OP,
     STDDEV_OP,
     LINREG_OP,
-    FREQ_OP,
+//    FREQ_OP,
 };
 
 struct initMsg {

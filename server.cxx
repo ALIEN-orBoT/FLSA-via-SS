@@ -13,18 +13,9 @@
 #include <unordered_map>
 #include <string>
 
+#include "net_share.h"
 #include "types.h"
 #include "utils.h"
-
-#if !defined(htonll) && !defined(ntohll)
-#if __BIG_ENDIAN__
-# define htonll(x) (x)
-# define ntohll(x) (x)
-#else
-# define htonll(x) (((uint64_t)htonl((x) & 0xFFFFFFFF) << 32) | htonl((x) >> 32))
-# define ntohll(x) (((uint64_t)ntohl((x) & 0xFFFFFFFF) << 32) | ntohl((x) >> 32))
-#endif
-#endif
 
 #define SERVER0_IP "127.0.0.1"
 #define SERVER1_IP "127.0.0.1"
@@ -37,52 +28,6 @@
 uint64_t int_sum_max;
 uint32_t num_bits;
 
-size_t send_out(const int sockfd, const void* const buf, const size_t len) {
-    size_t ret = send(sockfd, buf, len, 0);
-    if (ret <= 0) error_exit("Failed to send");
-    return ret;
-}
-
-int recv_in(const int sockfd, void* const buf, const size_t len) {
-    unsigned int bytes_read = 0, tmp;
-    char* bufptr = (char*) buf;
-    while (bytes_read < len) {
-        tmp = recv(sockfd, bufptr + bytes_read, len - bytes_read, 0);
-        if (tmp <= 0) return tmp; else bytes_read += tmp;
-    }
-    return bytes_read;
-}
-
-int send_size(const int sockfd, const size_t x) {
-    size_t x_conv = htonl(x);
-    const char* data = (const char*) &x_conv;
-    return send(sockfd, data, sizeof(size_t), 0);
-}
-
-int recv_size(const int sockfd, size_t& x) {
-    int ret = recv_in(sockfd, &x, sizeof(size_t));
-    x = ntohl(x);
-    return ret;
-}
-
-int send_uint64(const int sockfd, const uint64_t x) {
-    uint64_t x_conv = htonll(x);
-    const char* data = (const char*) &x_conv;
-    return send(sockfd, data, sizeof(uint64_t), 0);
-}
-
-int recv_uint64(const int sockfd, uint64_t& x) {
-    int ret = recv_in(sockfd, &x, sizeof(uint64_t));
-    x = ntohll(x);
-    return ret;
-}
-
-std::string get_pk(const int serverfd) {
-    char pk_buf[PK_LENGTH];
-    recv_in(serverfd, &pk_buf[0], PK_LENGTH);
-    std::string pk(pk_buf, pk_buf + PK_LENGTH);
-    return pk;
-}
 
 void bind_and_listen(sockaddr_in& addr, int& sockfd, const int port, const int reuse = 1) {
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -142,6 +87,12 @@ void server_connect(int& sockfd, const int port, const int reuse = 0) {
     std::cout << "  Connected\n";
 }
 
+std::string get_pk(const int serverfd) {
+    char pk_buf[PK_LENGTH];
+    recv_in(serverfd, &pk_buf[0], PK_LENGTH);
+    std::string pk(pk_buf, pk_buf + PK_LENGTH);
+    return pk;
+}
 
 returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, uint64_t& ans){
 
