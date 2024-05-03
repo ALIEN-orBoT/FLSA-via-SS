@@ -139,7 +139,7 @@ void splitBinaryString(const std::string& binaryString, std::string& part1, std:
     part3 = binaryString.substr(2 * partLength, length - 2 * partLength);
 }
 
-int int_sum_helper(const std::string protocol, const size_t numreqs, unsigned int &ans, const initMsg* const msg_ptr = nullptr) {
+int int_sum_sp_helper(const std::string protocol, const size_t numreqs, unsigned int &ans, const initMsg* const msg_ptr = nullptr) {
     auto start = clock_start();
     int num_bytes = 0;
 
@@ -203,20 +203,24 @@ int int_sum_helper(const std::string protocol, const size_t numreqs, unsigned in
     return num_bytes;
 }
 
-void int_sum(const std::string protocol, const size_t numreqs) {
+void int_sum_split(const std::string protocol, const size_t numreqs) {
 	unsigned int ans = 0;
 	int num_bytes = 0;
 	initMsg msg;
 	msg.num_of_inputs = numreqs;
-	msg.type = INT_SUM;
+	msg.type = INT_SUM_SPLIT;
 
-	num_bytes += int_sum_helper(protocol, numreqs, ans, &msg);
+	num_bytes += int_sum_sp_helper(protocol, numreqs, ans, &msg);
 
 	std::cout << "Ans: " << ans << std::endl;
 	std::cout << "Total sent bytes: " << num_bytes << std::endl;
 }
 
-// TODO and or
+void int_sum(const std::string protocol, const size_t numreqs) {
+
+}
+
+// and or
 int xor_op_helper(const std::string protocol, const size_t numreqs,
                   bool &ans, const initMsg* const msg_ptr = nullptr) {
 	auto start = clock_start();
@@ -233,6 +237,7 @@ int xor_op_helper(const std::string protocol, const size_t numreqs,
 
 	for (unsigned int i = 0; i < numreqs; i++) {
 		prg.random_bool(&value, 1);
+//		value = 1;
 		if (protocol == "ANDOP") {
 			ans &=value;
 			if (value)
@@ -307,6 +312,21 @@ void xor_op(const std::string protocol, const size_t numreqs) {
 
 	std::cout << "Ans : " << std::boolalpha << ans << std::endl;
 	std::cout << "Total sent bytes: " << num_bytes << std::endl;
+
+/*
+	// for verify the ans
+	bool ans2;
+	ssize_t bytes_received = recv(sockfd0, &ans2, sizeof(ans2), 0);
+	if (bytes_received < 0) {
+        std::cerr << "Error receiving boolean value" << std::endl;
+    } else if (bytes_received == 0) {
+        std::cerr << "Connection closed by peer" << std::endl;
+    }
+	std::cout << "Server Ans: " << ans2 << std::endl;
+	if (ans2 != ans) 
+		std::cout << "Ans error!!!!!!!!!!!!!!!!!!" << std::endl;
+	else std::cout << "Ans right" << std::endl;
+*/
 }
 
 int main(int argc, char** argv) {
@@ -389,6 +409,14 @@ int main(int argc, char** argv) {
 
 		std::cout << "Total time:\t" << sec_from(start) << std::endl;
 	} 
+	else if (protocol == "INTSUMSP") {
+		std::cout << "Uploading all INTSUM_Split shares: " << numreqs << std::endl;
+
+		// int_sum_split
+		int_sum_split(protocol, numreqs);
+
+		std::cout << "Total time:\t" << sec_from(start) << std::endl;
+	} 
 	else if (protocol == "INTSUM") {
 		std::cout << "Uploading all INTSUM shares: " << numreqs << std::endl;
 
@@ -400,7 +428,7 @@ int main(int argc, char** argv) {
 	else if (protocol == "ANDOP") {
 		std::cout << "Uploading all AND shares: " << numreqs << std::endl;
 
-		// and 
+		// and
 		xor_op(protocol, numreqs);
 
 		std::cout << "Total time:\t" << sec_from(start) << std::endl;

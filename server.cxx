@@ -207,6 +207,12 @@ uint64_t binaryStringToUint64(const std::string& binaryString) {
 
 returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, uint64_t& ans){
 
+	ans = 0;
+	return RET_ANS;
+}
+
+returnType int_sum_split(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, uint64_t& ans){
+
     std::unordered_map<std::string, std::string> share_map;
     auto start = clock_start();
 
@@ -389,7 +395,7 @@ int recv_bool_batch(const int sockfd, bool* const x, const size_t n) {
     return ret;
 }
 
-// TODO AND OR 
+// AND OR 
 returnType xor_op(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, bool& ans) {
     std::unordered_map<std::string, uint64_t> share_map;
     auto start = clock_start();
@@ -417,7 +423,7 @@ returnType xor_op(const initMsg msg, const int clientfd, const int serverfd0, co
     int server_bytes = 0;
 
 	if (server_num == 0) {
-		// verify
+		// todo verify
 		size_t num_inputs, num_valid = 0;
         recv_size(serverfd0, num_inputs);
         recv_size(serverfd, num_inputs);
@@ -427,7 +433,8 @@ returnType xor_op(const initMsg msg, const int clientfd, const int serverfd0, co
         for (unsigned int i = 0; i < num_inputs; i++) {
             const std::string pk = get_pk(serverfd0);
             const std::string pk2 = get_pk(serverfd);
-            valid[i] = (share_map.find(pk) != share_map.end());
+            valid[i] = (share_map.find(pk) != share_map.end()
+						and share_map.find(pk2) != share_map.end());
             if (!valid[i])
                 continue;
             num_valid++;
@@ -682,6 +689,18 @@ int main(int argc, char** argv) {
 
             std::cout << "Total time  : " << sec_from(start) << std::endl;
         }
+		else if (msg.type == INT_SUM_SPLIT) {
+            std::cout << "INT_SUM_SPLIT" << std::endl;
+            auto start = clock_start();
+
+			//  int_sum_split
+			uint64_t ans;
+			returnType ret = int_sum_split(msg, newsockfd, serverfd0, serverfd, server_num, ans);
+			if (ret == RET_ANS)
+                std::cout << "Ans: " << ans << std::endl;
+
+            std::cout << "Total time  : " << sec_from(start) << std::endl;
+		}
 		else if (msg.type == INT_SUM) {
             std::cout << "INT_SUM" << std::endl;
             auto start = clock_start();
@@ -704,8 +723,15 @@ int main(int argc, char** argv) {
 			if (ret == RET_ANS)
                 std::cout << "Ans: " << std::boolalpha << ans << std::endl;
 
+/*
+			// for verify the ans
+			ssize_t bytes_sent = send(newsockfd, &ans, sizeof(ans), 0);
+			if (bytes_sent < 0) 
+        		std::cerr << "Error sending boolean value" << std::endl;
+*/
             std::cout << "Total time  : " << sec_from(start) << std::endl;
 		}
+
 		else if (msg.type == OR_OP) {
             std::cout << "OR_OP" << std::endl;
             auto start = clock_start();
@@ -716,6 +742,12 @@ int main(int argc, char** argv) {
 			if (ret == RET_ANS)
                 std::cout << "Ans: " << std::boolalpha << ans << std::endl;
 
+/*
+			// for verify the ans
+			ssize_t bytes_sent = send(newsockfd, &ans, sizeof(ans), 0);
+			if (bytes_sent < 0) 
+        		std::cerr << "Error sending boolean value" << std::endl;
+*/
             std::cout << "Total time  : " << sec_from(start) << std::endl;
 		}
 
