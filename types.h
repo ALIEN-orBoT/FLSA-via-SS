@@ -9,18 +9,19 @@ struct BitShare {
     bool val;
 };
 
-// For INT_SUM
+// For INT_SUM_SPLIT
 struct IntSumShare {
     char pk[PK_LENGTH];
     char val[MAX_INT];
 };
 
-// For AND_OP, OR_OP
+// For INT_SUM, AND_OP, OR_OP
 struct IntShare {
     char pk[PK_LENGTH];
     uint64_t val;
 };
 
+/*
 // For Max, Min
 struct MaxShare {
     char pk[PK_LENGTH];
@@ -41,12 +42,6 @@ struct LinRegShare {
     uint64_t* x2_vals;  // Quadratic in feats: x0^2, x0 x1, x1^2, ... d(d-1)/2
     uint64_t* xy_vals;  // Feat * target: x0 y, x1 y, (d-1)
 };
-
-/*
-struct FreqShare {
-    char pk[PK_LENGTH];
-    bool* arr;  // Could theoretically be compacted
-};
 */
 
 enum messageType {
@@ -56,12 +51,11 @@ enum messageType {
     INT_SUM,
     AND_OP,
     OR_OP,
-    MAX_OP,
-    MIN_OP,
-    VAR_OP,
-    STDDEV_OP,
-    LINREG_OP,
-//    FREQ_OP,
+//    MAX_OP,
+//    MIN_OP,
+//    VAR_OP,
+//    STDDEV_OP,
+//    LINREG_OP,
 };
 
 struct initMsg {
