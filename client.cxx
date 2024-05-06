@@ -79,7 +79,7 @@ int bit_sum_helper(const std::string protocol, const size_t numreqs, unsigned in
         bitshare2[i].val = share2;
 
        // std::cout << pk << ": " << real_val << " = " << bitshare0[i].val << " ^ " << bitshare1[i].val << " ^ " << bitshare2[i].val << std::endl;
-        std::cout << "client" << i << ": " << real_val << " = " << bitshare0[i].val << " ^ " << bitshare1[i].val << " ^ " << bitshare2[i].val << std::endl;
+        std::cout << "client[" << i << "]: " << real_val << " = " << bitshare0[i].val << " ^ " << bitshare1[i].val << " ^ " << bitshare2[i].val << std::endl;
     }
 
     if (numreqs > 1)
@@ -175,7 +175,7 @@ int int_sum_sp_helper(const std::string protocol, const size_t numreqs, unsigned
 		memcpy(intshare2[i].pk, &pk[0], PK_LENGTH);
 		memcpy(intshare2[i].val, &share2[0], num_bits);
 
-        std::cout << "client" << i << ": " << real_val << " = " << intshare0[i].val << " | " << intshare1[i].val << " | " << intshare2[i].val << std::endl;
+        std::cout << "client[" << i << "]: " << real_val << " = " << intshare0[i].val << " | " << intshare1[i].val << " | " << intshare2[i].val << std::endl;
 	}
 
     if (numreqs > 1)
@@ -216,8 +216,78 @@ void int_sum_split(const std::string protocol, const size_t numreqs) {
 	std::cout << "Total sent bytes: " << num_bytes << std::endl;
 }
 
-void int_sum(const std::string protocol, const size_t numreqs) {
+int int_sum_helper(const std::string protocol, const size_t numreqs,
+                   uint64_t &ans, const initMsg* const msg_ptr = nullptr) {
+    auto start = clock_start();
+    int num_bytes = 0;
 
+    uint64_t real_val, share0, share1, share2;
+
+    emp::PRG prg;
+
+    IntShare* const intshare0 = new IntShare[numreqs];
+    IntShare* const intshare1 = new IntShare[numreqs];
+    IntShare* const intshare2 = new IntShare[numreqs];
+
+    for (unsigned int i = 0; i < numreqs; i++) {
+        prg.random_data(&real_val, sizeof(uint64_t));
+        prg.random_data(&share0, sizeof(uint64_t));
+        prg.random_data(&share1, sizeof(uint64_t));
+        real_val = real_val % max_int;
+        share0 = share0 % max_int;
+        share1 = share1 % max_int;
+        share2 = share1 ^ share0 ^ real_val;
+        ans += real_val;
+
+        const std::string pk_s = make_pk(prg);
+        const char* const pk = pk_s.c_str();
+
+        memcpy(intshare0[i].pk, &pk[0], PK_LENGTH);
+        intshare0[i].val = share0;
+
+        memcpy(intshare1[i].pk, &pk[0], PK_LENGTH);
+        intshare1[i].val = share1;
+
+        memcpy(intshare2[i].pk, &pk[0], PK_LENGTH);
+        intshare2[i].val = share2;
+		
+		std::cout << "client[" << i << "]: " << real_val << " = " << intshare0[i].val << " ^ " << intshare1[i].val << " ^ " << intshare2[i].val << std::endl;
+    }
+    if (numreqs > 1)
+        std::cout << "batch make:\t" << sec_from(start) << std::endl;
+
+    start = clock_start();
+    if (msg_ptr != nullptr) {
+        num_bytes += send_to_server(0, msg_ptr, sizeof(initMsg));
+        num_bytes += send_to_server(1, msg_ptr, sizeof(initMsg));
+        num_bytes += send_to_server(2, msg_ptr, sizeof(initMsg));
+    }
+    for (unsigned int i = 0; i < numreqs; i++) {
+        num_bytes += send_to_server(0, &intshare0[i], sizeof(IntShare));
+        num_bytes += send_to_server(1, &intshare1[i], sizeof(IntShare));
+        num_bytes += send_to_server(2, &intshare2[i], sizeof(IntShare));
+    }
+    delete[] intshare0;
+    delete[] intshare1;
+    delete[] intshare2;
+
+    if (numreqs > 1)
+        std::cout << "batch send:\t" << sec_from(start) << std::endl;
+
+    return num_bytes;
+}
+
+void int_sum(const std::string protocol, const size_t numreqs) {
+	uint64_t ans = 0;
+    int num_bytes = 0;
+    initMsg msg;
+    msg.num_of_inputs = numreqs;
+    msg.type = INT_SUM;
+
+	num_bytes += int_sum_helper(protocol, numreqs, ans, &msg);
+
+    std::cout << "Ans : " << ans << std::endl;
+    std::cout << "Total sent bytes: " << num_bytes << std::endl;
 }
 
 // and or
