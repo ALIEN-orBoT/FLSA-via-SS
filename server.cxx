@@ -12,7 +12,12 @@
 #include <iostream>
 #include <unordered_map>
 #include <string>
+#include <queue>
 
+#include <emp-tool/emp-tool.h>
+#include <emp-ot/emp-ot.h>
+
+#include "ot.h"
 #include "net_share.h"
 #include "types.h"
 #include "utils.h"
@@ -25,9 +30,14 @@
 
 #define INVALID_THRESHOLD 0.5
 
-uint64_t int_sum_max;
-uint32_t num_bits;
+OT_Wrapper* ot;
 
+std::queue<Dabits> server1Queue;
+std::queue<Dabits> server2Queue;
+
+uint32_t num_bits;
+unsigned int dabits_num = 10000;
+const uint64_t p = 41381;
 
 void bind_and_listen(sockaddr_in& addr, int& sockfd, const int port, const int reuse = 1) {
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -118,35 +128,171 @@ returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd0, c
     std::cout << "receive time: " << sec_from(start) << std::endl;
 
 	start = clock_start();
- //   auto start2 = clock_start();
+    auto start2 = clock_start();
+
 	int server_bytes = 0;
-	uint64_t result = 0;
 
-// TODO bit_sum
-    if (server_num == 1) {
+// TODO bit_sum adddddd
+    if (server_num == 0) {
+		// todo verify
+		size_t num_inputs, num_valid = 0;
+        recv_size(serverfd0, num_inputs);
+        recv_size(serverfd, num_inputs);
+        bool* const shares = new bool[num_inputs];
+        bool* const valid = new bool[num_inputs];
 
+        for (unsigned int i = 0; i < num_inputs; i++) {
+            const std::string pk = get_pk(serverfd0);
+            const std::string pk2 = get_pk(serverfd);
+
+            bool is_valid = (share_map.find(pk) != share_map.end()
+							and share_map.find(pk) != share_map.end());
+            valid[i] = is_valid;
+            if (!is_valid)
+                continue;
+            num_valid++;
+            shares[i] = share_map[pk];
+        }
+        std::cout << "verify time: " << sec_from(start2) << std::endl;
+        start2 = clock_start();
+
+		bool v[num_inputs];
+		bool v1[num_inputs];
+		bool v2[num_inputs];
+		ssize_t recvv = recv(serverfd0, v1, num_inputs, 0);
+		if  (recvv < 0) std::cout<<"recv v1 error!"<<std::endl;
+		recvv = recv(serverfd, v2, num_inputs, 0);
+		if  (recvv < 0) std::cout<<"recv v2 error!"<<std::endl;
+
+        for (unsigned int i = 0; i < num_inputs; i++) {
+			v[i] = shares[i] ^ v1[i] ^ v2[i];
+		}	
+
+		server_bytes += send_out(serverfd0, v, num_inputs);
+		server_bytes += send_out(serverfd, v, num_inputs);
+
+		delete[] shares;
+		delete[] valid;
+
+		uint64_t result = 0;
+        for (unsigned int i = 0; i < num_inputs; i++) 
+			result += v[i];	
+
+		const uint64_t a = result;
+        uint64_t b, c;
+        recv_uint64(serverfd0, b);
+        recv_uint64(serverfd, c);
+
+        std::cout << "Final valid count: " << num_valid << " / " << total_inputs << std::endl;
+        std::cout << "convert time: " << sec_from(start2) << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
+        if (num_valid < total_inputs * (1 - INVALID_THRESHOLD)) {
+            std::cout << "Failing, This is less than the invalid threshold of " << INVALID_THRESHOLD << std::endl;
+            return RET_INVALID;
+        }
+
+        ans = (a + b + c) % p;
 		
-		std::cout << "compute time: " << sec_from(start) << std::endl;
-
-		return RET_NO_ANS;
-
+		return RET_ANS;
 	}
-	else if (server_num == 2) {
+	else if (server_num == 1) {
+		const size_t num_inputs = share_map.size();
+        server_bytes += send_size(serverfd0, num_inputs);
+        bool* const shares = new bool[num_inputs];
+        int i = 0;
+        for (const auto& share : share_map) {
+            server_bytes += send_out(serverfd0, &share.first[0], PK_LENGTH);
+            shares[i] = share.second;
+            i++;
+        }
+        std::cout << "verify time: " << sec_from(start2) << std::endl;
+        start2 = clock_start();
 
+		// Doing B2A
+		bool v[num_inputs];
+		bool bb[num_inputs];
+		uint64_t ba[num_inputs];
+		Dabits dabits;
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			dabits = server1Queue.front();
+			bb[i] = dabits.bb;
+			ba[i] = dabits.ba;
+			server1Queue.pop();
 
-		std::cout << "compute time: " << sec_from(start) << std::endl;
+			v[i] = shares[i] ^ bb[i]; 
+		}	
+		// send v to server0
+		server_bytes += send_out(serverfd0, v, sizeof(v));
+		// recv v from server0
+		ssize_t recvv = recv(serverfd0, v, num_inputs, 0);
+
+		std::cout << "Current Dabits: " << server1Queue.size() << std::endl;
+
+		uint64_t result = 0;
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			result += (1-2*v[i])*ba[i];
+			result = (2*p +result) % p;
+		}
+
+        const uint64_t b = result;
+        delete[] shares;
+
+        send_uint64(serverfd0, b);
+        std::cout << "convert time: " << sec_from(start2) << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
 
 		return RET_NO_ANS;
 	}
 	else {
+		const size_t num_inputs = share_map.size();
+        server_bytes += send_size(serverfd0, num_inputs);
+        bool* const shares = new bool[num_inputs];
+        int i = 0;
+        for (const auto& share : share_map) {
+            server_bytes += send_out(serverfd0, &share.first[0], PK_LENGTH);
+            shares[i] = share.second;
+            i++;
+        }
+        std::cout << "verify time: " << sec_from(start2) << std::endl;
+        start2 = clock_start();
 
-		uint64_t received_data;
+		// Doing B2A
+		bool v[num_inputs];
+		bool bb[num_inputs];
+		uint64_t ba[num_inputs];
+		Dabits dabits;
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			dabits = server2Queue.front();
+			bb[i] = dabits.bb;
+			ba[i] = dabits.ba;
+			server2Queue.pop();
 
+			v[i] = shares[i] ^ bb[i]; 
+		}	
+		// send v to server0
+		server_bytes += send_out(serverfd0, v, sizeof(v));
+		// recv v from server0
+		ssize_t recvv = recv(serverfd0, v, num_inputs, 0);
 
-		std::cout << "compute time: " << sec_from(start) << std::endl;
+		std::cout << "Current Dabits: " << server2Queue.size() << std::endl;
 
-		ans = result;
-		return RET_ANS;
+		uint64_t result = 0;
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			result += (1-2*v[i])*ba[i];
+			result = (2*p +result) % p;
+		}
+
+        const uint64_t c = result;
+        delete[] shares;
+
+        send_uint64(serverfd0, c);
+        std::cout << "convert time: " << sec_from(start2) << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
+
+		return RET_NO_ANS;
 	}
 }
 
@@ -154,12 +300,6 @@ returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 uint64_t binaryStringToUint64(const std::string& binaryString) {
     std::bitset<64> bits(binaryString);
     return bits.to_ullong();
-}
-
-returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, uint64_t& ans){
-
-	ans = 0;
-	return RET_ANS;
 }
 
 returnType int_sum_split(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, uint64_t& ans){
@@ -201,7 +341,9 @@ returnType int_sum_split(const initMsg msg, const int clientfd, const int server
 	uint64_t data;
 	int server_bytes = 0;
 
+	// int_sum_split
 	if (server_num == 0){
+		// todo verify
 		size_t num_inputs, num_valid = 0;
         recv_size(serverfd0, num_inputs);
         recv_size(serverfd, num_inputs);
@@ -234,15 +376,14 @@ returnType int_sum_split(const initMsg msg, const int clientfd, const int server
 		ans = result;
 
 		int bytes_received = recv(serverfd0, &data, sizeof(uint64_t), 0);
-		if (bytes_received != sizeof(uint64_t)) {
+		if (bytes_received != sizeof(uint64_t)) 
 			error_exit("receive error from #1.");
-		}
+		
 		ans += data;
 		memset(&data, 0, sizeof(uint64_t));
 		bytes_received = recv(serverfd, &data, sizeof(uint64_t), 0);
-		if (bytes_received != sizeof(uint64_t)) {
+		if (bytes_received != sizeof(uint64_t)) 
 			error_exit("receive error from #2.");
-		}
 
 		std::cout << "Final valid count: " << num_valid << " / " << total_inputs << std::endl;
 		std::cout << "convert time: " << sec_from(start2) << std::endl;		
@@ -273,12 +414,11 @@ returnType int_sum_split(const initMsg msg, const int clientfd, const int server
 		result = result << remainder;	
 		std::cout << "result1 = " << result << std::endl; 
 
-		int bytes_sent = send(serverfd0, &result, sizeof(uint64_t), 0);
-		if (bytes_sent != sizeof(uint64_t)) 
-			error_exit("send error to #0");
+		ssize_t bytes_sent = send_out(serverfd0, &result, sizeof(uint64_t));
 
 		std::cout << "convert time: " << sec_from(start2) << std::endl;		
 		std::cout << "compute time: " << sec_from(start) << std::endl;		
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
 
 		return RET_NO_ANS;	
 	}
@@ -304,46 +444,131 @@ returnType int_sum_split(const initMsg msg, const int clientfd, const int server
 		}
 		std::cout << "result2 = " << result << std::endl; 
 
-		int bytes_sent = send(serverfd0, &result, sizeof(uint64_t), 0);
-		if (bytes_sent != sizeof(uint64_t)) 
-			error_exit("Send error to #0");
+		ssize_t bytes_sent = send_out(serverfd0, &result, sizeof(uint64_t));
 
 		std::cout << "convert time: " << sec_from(start2) << std::endl;		
 		std::cout << "compute time: " << sec_from(start) << std::endl;		
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
 
 		return RET_NO_ANS;	
 	}
 }
 
-int send_bool_batch(const int sockfd, const bool* const x, const size_t n) {
-    const size_t len = (n+7) / 8;  // Number of bytes to hold n, aka ceil(n/8)
-    char* buf = new char[len];
+// TODO int_sum
+returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, uint64_t& ans){
+	std::unordered_map<std::string, uint64_t> share_map;
+    auto start = clock_start();
 
-    memset(buf, 0, sizeof(char) * len);
+    IntShare share;
+    const uint64_t max_val = 1ULL << num_bits;
+    const unsigned int total_inputs = msg.num_of_inputs;
+    const size_t nbits[1] = {num_bits};
 
-    for (unsigned int i = 0; i < n; i++)
-        if (x[i])
-            buf[i / 8] ^= (1 << (i % 8));
+    int num_bytes = 0;
+    for (unsigned int i = 0; i < total_inputs; i++) {
+        num_bytes += recv_in(clientfd, &share, sizeof(IntShare));
+        const std::string pk(share.pk, share.pk + PK_LENGTH);
 
-    int ret = send(sockfd, buf, len, 0);
+        if (share_map.find(pk) != share_map.end()
+            or share.val >= max_val)
+            continue;
+        share_map[pk] = share.val;
 
-    delete[] buf;
+        std::cout << "share[" << i << "] = " << share.val << std::endl;
+    }
 
-    return ret;
-}
+    std::cout << "Received " << total_inputs << " total shares" << std::endl;
+    std::cout << "bytes from client: " << num_bytes << std::endl;
+    std::cout << "receive time: " << sec_from(start) << std::endl;
+    start = clock_start();
+    auto start2 = clock_start();
 
-int recv_bool_batch(const int sockfd, bool* const x, const size_t n) {
-    const size_t len = (n+7) / 8;
-    char* buf = new char[len];
+    int server_bytes = 0;
 
-    int ret = recv_in(sockfd, buf, len);
+	if (server_num == 0) {
+		size_t num_inputs, num_valid = 0;
+        recv_size(serverfd0, num_inputs);
+        recv_size(serverfd, num_inputs);
+        uint64_t** const shares = new uint64_t*[num_inputs];
+        bool* const valid = new bool[num_inputs];
 
-    for (unsigned int i = 0; i < n; i++)
-        x[i] = (buf[i/8] & (1 << (i % 8)));
+        for (unsigned int i = 0; i < num_inputs; i++) {
+            const std::string pk = get_pk(serverfd0);
+            const std::string pk2 = get_pk(serverfd);
 
-    delete[] buf;
+            bool is_valid = (share_map.find(pk) != share_map.end());
+            valid[i] = is_valid;
+            shares[i] = new uint64_t[1];
+            if (!is_valid)
+                continue;
+            num_valid++;
+            shares[i][0] = share_map[pk];
+        }
+        std::cout << "PK time: " << sec_from(start2) << std::endl;
+        start2 = clock_start();
+//		const uint64_t* const * const a_all = intsum_ot_sender(ot0, shares, valid, nbits, num_inputs, 1);
+        const uint64_t* const * const a_all = 0;
+        delete[] valid;
 
-    return ret;
+        uint64_t a = 0;
+        for (unsigned int i = 0; i < num_inputs; i++) {
+            a += a_all[i][0];
+            delete[] shares[i];
+            delete[] a_all[i];
+        }
+        delete[] shares;
+        delete[] a_all;
+
+        uint64_t b, c;
+        recv_uint64(serverfd0, b);
+        recv_uint64(serverfd, c);
+        std::cout << "Final valid count: " << num_valid << " / " << total_inputs << std::endl;
+        std::cout << "convert time: " << sec_from(start2) << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        if (num_valid < total_inputs * (1 - INVALID_THRESHOLD)) {
+            std::cout << "Failing, This is less than the invalid threshold of " << INVALID_THRESHOLD << std::endl;
+            return RET_INVALID;
+        }
+
+        ans = a + b + c;
+
+		return RET_ANS;
+	}
+	else if (server_num == 1) {
+		const size_t num_inputs = share_map.size();
+        server_bytes += send_size(serverfd0, num_inputs);
+        uint64_t** const shares = new uint64_t*[num_inputs];
+        int i = 0;
+        for (const auto& share : share_map) {
+            server_bytes += send_out(serverfd0, &share.first[0], PK_LENGTH);
+            shares[i] = new uint64_t[1];
+            shares[i][0] = share.second;
+            i++;
+        }
+        std::cout << "PK time: " << sec_from(start2) << std::endl;
+        start2 = clock_start();
+//		const uint64_t* const * const b_all = intsum_ot_receiver(ot0, shares, nbits, num_inputs, 1);
+        const uint64_t* const * const b_all = 0;
+        uint64_t b = 0;
+        for (unsigned int i = 0; i < num_inputs; i++) {
+            b += b_all[i][0];
+            delete[] shares[i];
+            delete[] b_all[i];
+        }
+        delete[] shares;
+        delete[] b_all;
+
+        send_uint64(serverfd0, b);
+        std::cout << "convert time: " << sec_from(start2) << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
+
+		return RET_NO_ANS;
+	}
+	else {
+
+		return RET_NO_ANS;
+	}
 }
 
 // AND OR 
@@ -373,6 +598,7 @@ returnType xor_op(const initMsg msg, const int clientfd, const int serverfd0, co
 
     int server_bytes = 0;
 
+	// xor_op
 	if (server_num == 0) {
 		// todo verify
 		size_t num_inputs, num_valid = 0;
@@ -511,7 +737,8 @@ int main(int argc, char** argv) {
 	std::cout << " Listening for client on " << client_port << std::endl;
 
 	num_bits = 8;
-	char buffer[BUFFER_SIZE];
+
+//	std::cout << "init_constants: " << std::endl;
 
     // Server 0 listens 1,2
     // Server 1 connects to 0, server 1 listens to 2
@@ -539,6 +766,7 @@ int main(int argc, char** argv) {
 
 // test for server communication
 /*
+	char buffer[BUFFER_SIZE];
 	if (server_num == 0) {
 
 		// 要发送的消息
@@ -603,7 +831,95 @@ int main(int argc, char** argv) {
 */
 
 	//TODO: precomputation ..
+	unsigned int need = dabits_num;
 
+	if (server_num == 1)
+		ot = new OT_Wrapper(nullptr, 60050);
+	else if (server_num == 2)
+		ot = new OT_Wrapper(SERVER1_IP, 60050);
+	std::cout << "Created a OT" << std::endl;
+
+	auto start = clock_start();
+	std::cout << "Doing precomputation..." << std::endl;
+	emp::PRG prg;
+//	const uint64_t p = 41381;
+
+	// Generate dabits
+	if (server_num == 1) {
+		Dabits dabits1;
+		uint64_t x[need], data0[need], data1[need];
+		bool r[need];
+		uint64_t y1[need];
+		for (unsigned int i = 0; i < need; i++) {
+			prg.random_data(&x[i], sizeof(int));
+			x[i] = x[i] % p;
+			prg.random_bool(&r[i], 1);
+			// for OT sending
+			data0[i] = x[i];
+			data1[i] = x[i] + r[i];
+			// set y1
+			y1[i] = p - x[i]; // -x[i] mod p
+		//	std::cout << "y1=" << y1[i] << std::endl;
+			dabits1.bb = r[i];
+			dabits1.ba = (3*p + r[i] - 2*y1[i]) % p;
+		//	std::cout << "bb=" << dabits1.bb << "\tba=" << dabits1.ba << std::endl;
+			server1Queue.push(dabits1);	
+		}
+		ot->send(data0, data1, need);
+	//	std::cout << "Queue size: " << server1Queue.size() << std::endl;
+
+	} else if (server_num == 2) {
+		Dabits dabits2;
+		bool r[need];
+		uint64_t y2[need];
+		const bool* choice[need];
+		for (unsigned int i = 0; i < need; i++) {
+			prg.random_bool(&r[i], 1);
+		}
+		// OT receive, set y2
+		ot->recv(y2, r, need);
+		for (unsigned int i = 0; i < need; i++) {
+			dabits2.bb = r[i];
+			dabits2.ba = (3*p + r[i] - 2*y2[i]) % p;
+		//	std::cout << "y2=" << y2[i] << std::endl;
+		//	std::cout << "bb=" << dabits2.bb << "\tba=" << dabits2.ba << std::endl;
+			server2Queue.push(dabits2);	
+		}
+	//	std::cout << "Queue size: " << server2Queue.size() << std::endl;
+	}
+	std::cout << "adding Dabits: " << need << std::endl;
+	std::cout << "adding Dabits timing: " << sec_from(start) << std::endl;
+
+/*
+	// OT test
+	if (server_num == 1) {
+		uint64_t x;	
+		prg.random_data(&x, sizeof(int));
+		x = x % p;
+		bool r;
+		prg.random_bool(&r, 1);
+
+		// OT
+		uint64_t data0[] = {x};
+		uint64_t data1[] = {x+r};
+		ot1->send(data0, data1, 1);
+		
+		int y1 = -x;
+		std::cout << "x = " << x << "\t x+r = " << x+r << std::endl;
+
+	} else if (server_num == 2) {
+		bool r;
+		prg.random_bool(&r, 1);
+
+		// OT
+		uint64_t received[1];
+		const bool * choice = &r;
+		ot1->recv(received, choice, 1);
+
+		uint64_t *y2 = received;
+		std::cout << "random bits:" << r <<"\treceived y2 = " << *y2 << std::endl;
+	}
+*/
 
 	int sockfd, newsockfd;
     sockaddr_in addr;
@@ -709,7 +1025,7 @@ int main(int argc, char** argv) {
 		else {
             std::cout << "Unrecognized message type: " << msg.type << std::endl;
         }
-
+		close(newsockfd);
 	//	break;
 	}
 
@@ -718,8 +1034,10 @@ int main(int argc, char** argv) {
 	close(newsockfd_server);
 	close(sockfd_server0);
 	close(newsockfd_server0);
+
+	delete ot;
 	std::cout << "socket closed" << std::endl;
-	
+
 	return 0;
 }
 

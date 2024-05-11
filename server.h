@@ -10,4 +10,9 @@ enum returnType {
     RET_NO_ANS,     // Success, no ans. For support server.
 };
 
+// daBits
+struct Dabits {
+	bool bb;
+	uint64_t ba;
+};
 #endif
