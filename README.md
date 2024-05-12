@@ -35,7 +35,7 @@ Enter the Framework directory: `cd FLSA-via-SS`
 ## Compile and Run
 Compile the program with:
 ```shell
-$ g++ server.cxx net_share.cxx -o server -lssl -lcrypto
+$ g++ server.cxx net_share.cxx ot.cxx -o server -lssl -lcrypto
 $ g++ client.cxx net_share.cxx -o client
 ```
 ### Usage example
