@@ -497,7 +497,8 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
             const std::string pk = get_pk(serverfd0);
             const std::string pk2 = get_pk(serverfd);
 
-            bool is_valid = (share_map.find(pk) != share_map.end());
+            bool is_valid = (share_map.find(pk) != share_map.end()
+							and share_map.find(pk2) != share_map.end());
             valid[i] = is_valid;
             shares[i] = new uint64_t[1];
             if (!is_valid)
@@ -509,20 +510,20 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
         std::cout << "verify time: " << sec_from(start2) << std::endl;
         start2 = clock_start();
 
-		// TODO server0
 		bool shares0[num_inputs][num_bits];
 		for (unsigned int i = 0; i < num_inputs; ++i) {
-			std::cout << "share[" << i << "] = ";
+			//std::cout << "share[" << i << "] = ";
 			for (unsigned int j = 0; j < num_bits; ++j) {
 				shares0[i][j] = (share_[i] >> j) & 1; 
-				std::cout << shares0[i][j];
+				//std::cout << shares0[i][j];
 			}
-			std::cout << std::endl;
+			//std::cout << std::endl;
 		}
 
-		bool v[num_inputs*num_bits];
+		bool v[num_inputs][num_bits];
 		bool v1[num_bits*num_inputs];
 		bool v2[num_bits*num_inputs];
+		bool v_[num_inputs*num_bits];
 
 		ssize_t recvv = recv(serverfd0, v1, num_inputs*num_bits, 0);
 		if  (recvv < 0) std::cout<<"recv v1 error!"<<std::endl;
@@ -530,21 +531,31 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		if  (recvv < 0) std::cout<<"recv v2 error!"<<std::endl;
 	
 		int cnt = 0;
-        for (unsigned int i = 0; i < num_inputs; i++) {
+		for (unsigned int i = 0; i < num_inputs; i++) {
         	for (unsigned int j = 0; j < num_bits; j++) {
-				v[cnt] = shares0[i][j] ^ v1[cnt] ^ v2[cnt];
+				v_[cnt] = shares0[i][j] ^ v1[cnt] ^ v2[cnt];
 				cnt++;
 			}
 		}
 
-		server_bytes += send_out(serverfd0, v, num_inputs*num_bits);
-		server_bytes += send_out(serverfd, v, num_inputs*num_bits);
+		server_bytes += send_out(serverfd0, v_, num_inputs*num_bits);
+		server_bytes += send_out(serverfd, v_, num_inputs*num_bits);
 
         delete[] valid;
 
         uint64_t a = 0;
-        for (unsigned int i = 0; i < num_inputs*num_bits; i++) {
-			a += v[i];
+		cnt = 0;
+		for (unsigned int i = 0; i < num_inputs; i++) {
+        	for (unsigned int j = 0; j < num_bits; j++) {
+				v[i][j] = v_[cnt];
+				cnt++;
+			}
+		}
+		for (unsigned int i = 0; i < num_inputs; i++) {
+        	for (unsigned int j = 0; j < num_bits; j++) {
+				a += pow(2,j)*v[i][j];
+			}
+			a = a % p;
 		}
 
         delete[] shares;
@@ -561,6 +572,7 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
         }
 
         ans = a + b + c;
+		ans = ans % p;
 
 		return RET_ANS;
 	}
@@ -578,15 +590,14 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
         std::cout << "verify time: " << sec_from(start2) << std::endl;
         start2 = clock_start();
 
-		// TODO server1
 		bool shares1[num_inputs][num_bits];
 		for (unsigned int i = 0; i < num_inputs; ++i) {
-			std::cout << "share[" << i << "] = ";
+			//std::cout << "share[" << i << "] = ";
 			for (unsigned int j = 0; j < num_bits; ++j) {
 				shares1[i][j] = (share_[i] >> j) & 1; 
-				std::cout << shares1[i][j];
+				//std::cout << shares1[i][j];
 			}
-			std::cout << std::endl;
+			//std::cout << std::endl;
 		}
 
 		// Doing B2A
@@ -603,7 +614,7 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 
 				v[i][j] = shares1[i][j] ^ bb[i][j]; 
 			}
-		}	
+		}
 		// convert 2 dimension to 1 dimention
 		bool v_[num_bits*num_inputs];
 		int cnt = 0;
@@ -629,12 +640,12 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 
 		std::cout << "Current Dabits: " << server1Queue.size() << std::endl;
 
-		uint64_t result[num_bits];
-		for (unsigned int i = 0; i < num_bits; i++) {
-			for (unsigned int j = 0; j < num_inputs; j++) {
-				result[i] += (1-2*v[j][i])*ba[j][i];
+		uint64_t result[num_bits] = {0};
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			for (unsigned int j = 0; j < num_bits; j++) {
+				result[j] += (1-2*v[i][j])*ba[i][j];
+				result[j] = (2*p +result[j]) % p;
 			}
-			result[i] = (2*p +result[i]) % p;
 		}
 
         uint64_t b = 0;
@@ -666,15 +677,14 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
         std::cout << "verify time: " << sec_from(start2) << std::endl;
         start2 = clock_start();
 
-		// TODO server2
 		bool shares2[num_inputs][num_bits];
 		for (unsigned int i = 0; i < num_inputs; ++i) {
-			std::cout << "share[" << i << "] = ";
+			//std::cout << "share[" << i << "] = ";
 			for (unsigned int j = 0; j < num_bits; ++j) {
 				shares2[i][j] = (share_[i] >> j) & 1; 
-				std::cout << shares2[i][j];
+				//std::cout << shares2[i][j];
 			}
-			std::cout << std::endl;
+			//std::cout << std::endl;
 		}
 
 		// Doing B2A
@@ -684,7 +694,7 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		Dabits dabits;
 		for (unsigned int i = 0; i < num_inputs; i++) {
 			for (unsigned int j = 0; j < num_bits; j++) {
-				dabits = server1Queue.front();
+				dabits = server2Queue.front();
 				bb[i][j] = dabits.bb;
 				ba[i][j] = dabits.ba;
 				server2Queue.pop();
@@ -695,8 +705,8 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		// convert 2 dimension to 1 dimention
 		bool v_[num_bits*num_inputs];
 		int cnt = 0;
-		for (unsigned int i = 0; i < num_bits; i++) {
-			for (unsigned int j = 0; j < num_inputs; j++) {
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			for (unsigned int j = 0; j < num_bits; j++) {
 				v_[cnt] = v[i][j];
 				cnt++;
 			}
@@ -708,8 +718,8 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 
 		// convert 1 dimention to 2 dimension
 		cnt = 0;
-		for (unsigned int i = 0; i < num_bits; i++) {
-			for (unsigned int j = 0; j < num_inputs; j++) {
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			for (unsigned int j = 0; j < num_bits; j++) {
 				v[i][j] = v_[cnt];
 				cnt++;
 			}
@@ -717,12 +727,12 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 
 		std::cout << "Current Dabits: " << server2Queue.size() << std::endl;
 
-		uint64_t result[num_bits];
-		for (unsigned int i = 0; i < num_bits; i++) {
-			for (unsigned int j = 0; j < num_inputs; j++) {
-				result[i] += (1-2*v[j][i])*ba[j][i];
+		uint64_t result[num_bits] = {0};
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			for (unsigned int j = 0; j < num_bits; j++) {
+				result[j] += (1-2*v[i][j])*ba[i][j];
+				result[j] = (2*p +result[j]) % p;
 			}
-			result[i] = (2*p +result[i]) % p;
 		}
 
         uint64_t c = 0;
