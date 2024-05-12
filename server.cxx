@@ -16,6 +16,7 @@
 
 #include <emp-tool/emp-tool.h>
 #include <emp-ot/emp-ot.h>
+#include <cmath>
 
 #include "ot.h"
 #include "net_share.h"
@@ -558,6 +559,7 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
         std::cout << "Final valid count: " << num_valid << " / " << total_inputs << std::endl;
         std::cout << "convert time: " << sec_from(start2) << std::endl;
         std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
         if (num_valid < total_inputs * (1 - INVALID_THRESHOLD)) {
             std::cout << "Failing, This is less than the invalid threshold of " << INVALID_THRESHOLD << std::endl;
             return RET_INVALID;
@@ -610,8 +612,8 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		// convert 2 dimension to 1 dimention
 		bool v_[num_bits*num_inputs];
 		int cnt = 0;
-		for (unsigned int i = 0; i < num_bits; i++) {
-			for (unsigned int j = 0; j < num_inputs; j++) {
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			for (unsigned int j = 0; j < num_bits; j++) {
 				v_[cnt] = v[i][j];
 				cnt++;
 			}
@@ -623,8 +625,8 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 
 		// convert 1 dimention to 2 dimension
 		cnt = 0;
-		for (unsigned int i = 0; i < num_bits; i++) {
-			for (unsigned int j = 0; j < num_inputs; j++) {
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			for (unsigned int j = 0; j < num_bits; j++) {
 				v[i][j] = v_[cnt];
 				cnt++;
 			}
@@ -635,8 +637,8 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		uint64_t result[num_bits] = {0};
 		for (unsigned int i = 0; i < num_bits; i++) {
 			for (unsigned int j = 0; j < num_inputs; j++) {
-				result[j] += (1-2*v[j][i])*ba[j][i];
-				result[j] = (2*p +result[j]) % p;
+				result[i] += (1-2*v[j][i])*ba[j][i];
+				result[i] = (2*p +result[i]) % p;
 			}
 		}
 
@@ -687,7 +689,7 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		Dabits dabits;
 		for (unsigned int i = 0; i < num_inputs; i++) {
 			for (unsigned int j = 0; j < num_bits; j++) {
-				dabits = server1Queue.front();
+				dabits = server2Queue.front();
 				bb[i][j] = dabits.bb;
 				ba[i][j] = dabits.ba;
 				server2Queue.pop();
@@ -698,8 +700,8 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		// convert 2 dimension to 1 dimention
 		bool v_[num_bits*num_inputs];
 		int cnt = 0;
-		for (unsigned int i = 0; i < num_bits; i++) {
-			for (unsigned int j = 0; j < num_inputs; j++) {
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			for (unsigned int j = 0; j < num_bits; j++) {
 				v_[cnt] = v[i][j];
 				cnt++;
 			}
@@ -711,8 +713,8 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 
 		// convert 1 dimention to 2 dimension
 		cnt = 0;
-		for (unsigned int i = 0; i < num_bits; i++) {
-			for (unsigned int j = 0; j < num_inputs; j++) {
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			for (unsigned int j = 0; j < num_bits; j++) {
 				v[i][j] = v_[cnt];
 				cnt++;
 			}
@@ -723,8 +725,8 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		uint64_t result[num_bits] = {0};
 		for (unsigned int i = 0; i < num_bits; i++) {
 			for (unsigned int j = 0; j < num_inputs; j++) {
-				result[j] += (1-2*v[j][i])*ba[j][i];
-				result[j] = (2*p +result[j]) % p;
+				result[i] += (1-2*v[j][i])*ba[j][i];
+				result[i] = (2*p +result[i]) % p;
 			}
 		}
 
@@ -740,7 +742,6 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
         std::cout << "convert time: " << sec_from(start2) << std::endl;
         std::cout << "compute time: " << sec_from(start) << std::endl;
         std::cout << "sent server bytes: " << server_bytes << std::endl;
-
 
 		return RET_NO_ANS;
 	}
