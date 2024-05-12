@@ -16,7 +16,6 @@
 
 #include <emp-tool/emp-tool.h>
 #include <emp-ot/emp-ot.h>
-#include <cmath>
 
 #include "ot.h"
 #include "net_share.h"
@@ -135,7 +134,6 @@ returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 
 	// bit_sum 
     if (server_num == 0) {
-		// todo verify
 		size_t num_inputs, num_valid = 0;
         recv_size(serverfd0, num_inputs);
         recv_size(serverfd, num_inputs);
@@ -344,7 +342,6 @@ returnType int_sum_split(const initMsg msg, const int clientfd, const int server
 
 	// int_sum_split
 	if (server_num == 0){
-		// todo verify
 		size_t num_inputs, num_valid = 0;
         recv_size(serverfd0, num_inputs);
         recv_size(serverfd, num_inputs);
@@ -490,7 +487,6 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 
 	// int_sum
 	if (server_num == 0) {
-		// todo verify
 		size_t num_inputs, num_valid = 0;
         recv_size(serverfd0, num_inputs);
         recv_size(serverfd, num_inputs);
@@ -528,16 +524,16 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		bool v1[num_bits*num_inputs];
 		bool v2[num_bits*num_inputs];
 
-		ssize_t recvv = recv(serverfd0, v1, num_inputs, 0);
+		ssize_t recvv = recv(serverfd0, v1, num_inputs*num_bits, 0);
 		if  (recvv < 0) std::cout<<"recv v1 error!"<<std::endl;
-		recvv = recv(serverfd, v2, num_inputs, 0);
+		recvv = recv(serverfd, v2, num_inputs*num_bits, 0);
 		if  (recvv < 0) std::cout<<"recv v2 error!"<<std::endl;
 	
 		int cnt = 0;
         for (unsigned int i = 0; i < num_inputs; i++) {
         	for (unsigned int j = 0; j < num_bits; j++) {
 				v[cnt] = shares0[i][j] ^ v1[cnt] ^ v2[cnt];
-				cnt ++;
+				cnt++;
 			}
 		}
 
@@ -547,7 +543,7 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
         delete[] valid;
 
         uint64_t a = 0;
-        for (unsigned int i = 0; i < num_inputs; i++) {
+        for (unsigned int i = 0; i < num_inputs*num_bits; i++) {
 			a += v[i];
 		}
 
@@ -559,13 +555,12 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
         std::cout << "Final valid count: " << num_valid << " / " << total_inputs << std::endl;
         std::cout << "convert time: " << sec_from(start2) << std::endl;
         std::cout << "compute time: " << sec_from(start) << std::endl;
-        std::cout << "sent server bytes: " << server_bytes << std::endl;
         if (num_valid < total_inputs * (1 - INVALID_THRESHOLD)) {
             std::cout << "Failing, This is less than the invalid threshold of " << INVALID_THRESHOLD << std::endl;
             return RET_INVALID;
         }
 
-        ans = (a + b + c) % p;
+        ans = a + b + c;
 
 		return RET_ANS;
 	}
@@ -634,12 +629,12 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 
 		std::cout << "Current Dabits: " << server1Queue.size() << std::endl;
 
-		uint64_t result[num_bits] = {0};
+		uint64_t result[num_bits];
 		for (unsigned int i = 0; i < num_bits; i++) {
 			for (unsigned int j = 0; j < num_inputs; j++) {
 				result[i] += (1-2*v[j][i])*ba[j][i];
-				result[i] = (2*p +result[i]) % p;
 			}
+			result[i] = (2*p +result[i]) % p;
 		}
 
         uint64_t b = 0;
@@ -689,7 +684,7 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		Dabits dabits;
 		for (unsigned int i = 0; i < num_inputs; i++) {
 			for (unsigned int j = 0; j < num_bits; j++) {
-				dabits = server2Queue.front();
+				dabits = server1Queue.front();
 				bb[i][j] = dabits.bb;
 				ba[i][j] = dabits.ba;
 				server2Queue.pop();
@@ -700,8 +695,8 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 		// convert 2 dimension to 1 dimention
 		bool v_[num_bits*num_inputs];
 		int cnt = 0;
-		for (unsigned int i = 0; i < num_inputs; i++) {
-			for (unsigned int j = 0; j < num_bits; j++) {
+		for (unsigned int i = 0; i < num_bits; i++) {
+			for (unsigned int j = 0; j < num_inputs; j++) {
 				v_[cnt] = v[i][j];
 				cnt++;
 			}
@@ -713,8 +708,8 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 
 		// convert 1 dimention to 2 dimension
 		cnt = 0;
-		for (unsigned int i = 0; i < num_inputs; i++) {
-			for (unsigned int j = 0; j < num_bits; j++) {
+		for (unsigned int i = 0; i < num_bits; i++) {
+			for (unsigned int j = 0; j < num_inputs; j++) {
 				v[i][j] = v_[cnt];
 				cnt++;
 			}
@@ -722,12 +717,12 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
 
 		std::cout << "Current Dabits: " << server2Queue.size() << std::endl;
 
-		uint64_t result[num_bits] = {0};
+		uint64_t result[num_bits];
 		for (unsigned int i = 0; i < num_bits; i++) {
 			for (unsigned int j = 0; j < num_inputs; j++) {
 				result[i] += (1-2*v[j][i])*ba[j][i];
-				result[i] = (2*p +result[i]) % p;
 			}
+			result[i] = (2*p +result[i]) % p;
 		}
 
         uint64_t c = 0;
@@ -742,6 +737,7 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
         std::cout << "convert time: " << sec_from(start2) << std::endl;
         std::cout << "compute time: " << sec_from(start) << std::endl;
         std::cout << "sent server bytes: " << server_bytes << std::endl;
+
 
 		return RET_NO_ANS;
 	}
@@ -776,7 +772,6 @@ returnType xor_op(const initMsg msg, const int clientfd, const int serverfd0, co
 
 	// xor_op
 	if (server_num == 0) {
-		// todo verify
 		size_t num_inputs, num_valid = 0;
         recv_size(serverfd0, num_inputs);
         recv_size(serverfd, num_inputs);
@@ -1006,7 +1001,7 @@ int main(int argc, char** argv) {
 	}
 */
 
-	//TODO: precomputation ..
+	// precomputation ..
 	unsigned int need = dabits_num;
 
 	if (server_num == 1)
