@@ -38,11 +38,17 @@ Compile the program with:
 $ g++ server.cxx net_share.cxx ot.cxx -o server -lssl -lcrypto
 $ g++ client.cxx net_share.cxx -o client
 ```
+Then the binaries will generate:
+- server: Runs a server instance
+- client: Mimics a cluster of individual clients
+The code runs three servers, 0, 1 and 2, each of which needs to be started separately.
+- Server arguments are `server_num max_bits`
+- Client arguments are `num_inputs operation max_bits`
 ### Usage example
 1. Run `./server 0` to start the first server
-2. In another window, run `./server 1` to start the second server
-3. In another window, run `./server 2` to start the third server
-4. In another window, run `./client 10 INTSUMSP` to run a meta-client that sends out client messages
+2. In another window, run `./server 1 8` to start the second server
+3. In another window, run `./server 2 8` to start the third server
+4. In another window, run `./client 10 INTSUM 8` to run a meta-client that sends out client messages
 ## Supported protocols
 - BITSUM
 - INTSUM

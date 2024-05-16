@@ -400,8 +400,8 @@ void xor_op(const std::string protocol, const size_t numreqs) {
 }
 
 int main(int argc, char** argv) {
-	if (argc < 3) {
-		std::cout << "argument: client_num OPERATION" <<std::endl;
+	if (argc < 4) {
+		std::cout << "argument: client_num OPERATION num_bits" <<std::endl;
 		return 1;
 	}
 
@@ -411,7 +411,8 @@ int main(int argc, char** argv) {
     const int port2 = 8002;
 	const std::string protocol(argv[2]);
 
-	num_bits = 8;
+	num_bits = atoi(argv[3]);
+//	num_bits = 8;
 	std::cout << "num bits:" << num_bits << std::endl;
 	max_int = 1ULL << num_bits;
 	std::cout << "max int: " << max_int << std::endl;

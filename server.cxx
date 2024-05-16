@@ -36,8 +36,8 @@ std::queue<Dabits> server1Queue;
 std::queue<Dabits> server2Queue;
 
 uint32_t num_bits;
-unsigned int dabits_num = 10000;
-const uint64_t p = 41381;
+unsigned int dabits_num = 200000;
+const uint64_t p = 1493925467;
 
 void bind_and_listen(sockaddr_in& addr, int& sockfd, const int port, const int reuse = 1) {
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -899,8 +899,8 @@ returnType xor_op(const initMsg msg, const int clientfd, const int serverfd0, co
 
 int main(int argc, char** argv) {
 
-	if (argc < 2) {
-		std::cout << "argument: server_num(0/1/2) " << std::endl;
+	if (argc < 3) {
+		std::cout << "argument: server_num(0/1/2) num_bits" << std::endl;
 		return 1;
 	}
 
@@ -917,7 +917,8 @@ int main(int argc, char** argv) {
 	std::cout << "This server is server #" << server_num << std::endl;
 	std::cout << " Listening for client on " << client_port << std::endl;
 
-	num_bits = 8;
+	num_bits = atoi(argv[2];
+//	num_bits = 8;
 
 //	std::cout << "init_constants: " << std::endl;
 
