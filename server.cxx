@@ -917,7 +917,7 @@ int main(int argc, char** argv) {
 	std::cout << "This server is server #" << server_num << std::endl;
 	std::cout << " Listening for client on " << client_port << std::endl;
 
-	num_bits = atoi(argv[2];
+	num_bits = atoi(argv[2]);
 //	num_bits = 8;
 
 //	std::cout << "init_constants: " << std::endl;
