@@ -566,6 +566,7 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
         std::cout << "Final valid count: " << num_valid << " / " << total_inputs << std::endl;
         std::cout << "convert time: " << sec_from(start2) << std::endl;
         std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
         if (num_valid < total_inputs * (1 - INVALID_THRESHOLD)) {
             std::cout << "Failing, This is less than the invalid threshold of " << INVALID_THRESHOLD << std::endl;
             return RET_INVALID;
@@ -897,6 +898,163 @@ returnType xor_op(const initMsg msg, const int clientfd, const int serverfd0, co
 	}
 }
 
+returnType max_op(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num, uint64_t& ans) {
+    std::unordered_map<std::string, uint64_t*> share_map;
+    auto start = clock_start();
+
+    MaxShare share;
+    const unsigned int total_inputs = msg.num_of_inputs;
+    const unsigned int B = msg.max_inp;
+    // Need this to have all share arrays stay in memory, for server1 later.
+    uint64_t* const shares = new uint64_t[total_inputs * (B + 1)];
+
+    int num_bytes = 0;
+    for (unsigned int i = 0; i < total_inputs; i++) {
+        num_bytes += recv_in(clientfd, &share.pk[0], PK_LENGTH);
+        const std::string pk(share.pk, share.pk + PK_LENGTH);
+
+        num_bytes += recv_uint64_batch(clientfd, &shares[i*(B+1)], B+1);
+
+        if (share_map.find(pk) != share_map.end())
+            continue;
+        share_map[pk] = &shares[i*(B+1)];
+    }
+
+    std::cout << "Received " << total_inputs << " total shares" << std::endl;
+    std::cout << "bytes from client: " << num_bytes << std::endl;
+    std::cout << "receive time: " << sec_from(start) << std::endl;
+    start = clock_start();
+    auto start2 = clock_start();
+
+    int server_bytes = 0;
+
+	if (server_num == 0) {
+		size_t num_inputs, num_valid = 0;
+        recv_size(serverfd0, num_inputs);
+        recv_size(serverfd, num_inputs);
+        uint64_t a[B+1];
+        memset(a, 0, sizeof(a));
+        bool* const valid = new bool[num_inputs];
+
+        for (unsigned int i = 0; i < num_inputs; i++) {
+            const std::string pk0 = get_pk(serverfd0);
+            const std::string pk = get_pk(serverfd);
+            valid[i] = (share_map.find(pk) != share_map.end());
+            if (!valid[i])
+                continue;
+            num_valid++;
+            for (unsigned int j = 0; j <= B; j++)
+                a[j] ^= share_map[pk][j];
+        }
+
+        std::cout << "PK+convert time: " << sec_from(start2) << std::endl;
+        start2 = clock_start();
+
+        server_bytes += send_bool_batch(serverfd0, valid, num_inputs);
+        server_bytes += send_bool_batch(serverfd, valid, num_inputs);
+
+        delete[] shares;
+        delete[] valid;
+        uint64_t b[B+1];
+        uint64_t c[B+1];
+        recv_uint64_batch(serverfd0, b, B+1);
+        recv_uint64_batch(serverfd, c, B+1);
+
+        std::cout << "Final valid count: " << num_valid << " / " << total_inputs << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
+        if (num_valid < total_inputs * (1 - INVALID_THRESHOLD)) {
+            std::cout << "Failing, This is less than the invalid threshold of " << INVALID_THRESHOLD << std::endl;
+            return RET_INVALID;
+        }
+
+		uint64_t result;
+        for (unsigned int j = B; j >= 0; j--) {
+            std::cout << "a, b ,c[" << j << "] = " << a[j] << ", " << b[j] << ", " << c[j] << std::endl;
+			result = a[j]^b[j]^c[j];
+            if (result != 0) {
+                if (msg.type == MAX_OP) {
+                    ans = j;
+                } else if (msg.type == MIN_OP) {
+                    ans = B - j;
+                } else {
+                    error_exit("Message type incorrect for max_op");
+                }
+                return RET_ANS;
+            }
+        }
+        // Shouldn't reach.
+        return RET_INVALID;
+	}
+    else if (server_num == 1) {
+        const size_t num_inputs = share_map.size();
+        server_bytes += send_size(serverfd0, num_inputs);
+        uint64_t b[B+1];
+        memset(b, 0, sizeof(b));
+        std::string* const pk_list = new std::string[num_inputs];
+        size_t idx = 0;
+        for (const auto& share : share_map) {
+            server_bytes += send_out(serverfd0, &share.first[0], PK_LENGTH);
+            pk_list[idx] = share.first;
+            idx++;
+        }
+        std::cout << "PK time: " << sec_from(start2) << std::endl;
+        start2 = clock_start();
+        bool* const other_valid = new bool[num_inputs];
+        recv_bool_batch(serverfd0, other_valid, num_inputs);
+        for (unsigned int i = 0; i < num_inputs; i++) {
+            if (!other_valid[i])
+                continue;
+            for (unsigned int j = 0; j <= B; j++)
+                b[j] ^= share_map[pk_list[i]][j];
+        }
+        delete[] other_valid;
+        delete[] shares;
+        delete[] pk_list;
+        send_uint64_batch(serverfd0, b, B+1);
+
+        std::cout << "convert time: " << sec_from(start2) << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
+        return RET_NO_ANS;
+    } 
+	else {
+        const size_t num_inputs = share_map.size();
+        server_bytes += send_size(serverfd0, num_inputs);
+        uint64_t c[B+1];
+        memset(c, 0, sizeof(c));
+        std::string* const pk_list = new std::string[num_inputs];
+        size_t idx = 0;
+        for (const auto& share : share_map) {
+            server_bytes += send_out(serverfd0, &share.first[0], PK_LENGTH);
+            pk_list[idx] = share.first;
+            idx++;
+        }
+        std::cout << "PK time: " << sec_from(start2) << std::endl;
+        start2 = clock_start();
+        bool* const other_valid = new bool[num_inputs];
+        recv_bool_batch(serverfd0, other_valid, num_inputs);
+        for (unsigned int i = 0; i < num_inputs; i++) {
+            if (!other_valid[i])
+                continue;
+            for (unsigned int j = 0; j <= B; j++)
+                c[j] ^= share_map[pk_list[i]][j];
+        }
+        delete[] other_valid;
+        delete[] shares;
+        delete[] pk_list;
+        send_uint64_batch(serverfd0, c, B+1);
+
+        std::cout << "convert time: " << sec_from(start2) << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
+        return RET_NO_ANS;
+
+    }
+
+    return RET_INVALID;
+}
+
 int main(int argc, char** argv) {
 
 	if (argc < 3) {
@@ -1199,6 +1357,30 @@ int main(int argc, char** argv) {
 */
             std::cout << "Total time  : " << sec_from(start) << std::endl;
 		}
+
+		else if (msg.type == MAX_OP) {
+            std::cout << "MAX_OP" << std::endl;
+            auto start = clock_start();
+
+            uint64_t ans;
+            returnType ret = max_op(msg, newsockfd, serverfd0, serverfd, server_num, ans);
+            if (ret == RET_ANS)
+                std::cout << "Ans: " << ans << std::endl;
+
+            std::cout << "Total time  : " << sec_from(start) << std::endl;
+        }
+
+		else if (msg.type == MIN_OP) {
+            std::cout << "MIN_OP" << std::endl;
+            auto start = clock_start();
+
+            uint64_t ans;
+            returnType ret = max_op(msg, newsockfd, serverfd0, serverfd, server_num, ans);
+            if (ret == RET_ANS)
+                std::cout << "Ans: " << ans << std::endl;
+
+            std::cout << "Total time  : " << sec_from(start) << std::endl;
+        }
 
 		else if (msg.type == NONE_OP) {
             std::cout << "Empty client message" << std::endl;

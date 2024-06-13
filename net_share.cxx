@@ -88,3 +88,11 @@ int recv_uint64(const int sockfd, uint64_t& x) {
     return ret;
 }
 
+int send_uint64_batch(const int sockfd, const uint64_t* const x, const size_t n) {
+    return send(sockfd, x, n * sizeof(uint64_t), 0);
+}
+
+int recv_uint64_batch(const int sockfd, uint64_t* const x, const size_t n) {
+    return recv_in(sockfd, x, n * sizeof(uint64_t));
+}
+

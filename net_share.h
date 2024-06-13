@@ -15,4 +15,8 @@ int recv_size(const int sockfd, size_t& x);
 int send_uint64(const int sockfd, const uint64_t x);
 int recv_uint64(const int sockfd, uint64_t& x);
 
+int send_uint64_batch(const int sockfd, const uint64_t* const x, const size_t n);
+
+int recv_uint64_batch(const int sockfd, uint64_t* const x, const size_t n);
+
 #endif

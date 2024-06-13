@@ -15,6 +15,7 @@
 
 #include "types.h"
 #include "utils.h"
+#include "net_share.h"
 
 #define SERVER0_IP "127.0.0.1"
 #define SERVER1_IP "127.0.0.1"
@@ -38,6 +39,23 @@ std::string make_pk(emp::PRG prg) {
     emp::block b;
     prg.random_block(&b, 1);
     return pub_key_to_hex((uint64_t*)&b);
+}
+
+int send_maxshare(const int server_num, const MaxShare& maxshare, const unsigned int B) {
+	const int sock = (server_num == 0) ? sockfd0 : ((server_num == 1) ? sockfd1 : sockfd2);
+
+    int ret = send(sock, (void*)&(maxshare.pk[0]), PK_LENGTH, 0);
+    ret += send_uint64_batch(sock, maxshare.arr, B+1);
+
+    return ret;
+}
+
+int send_freqshare(const int server_num, const FreqShare& freqshare, const uint64_t n) {
+	const int sock = (server_num == 0) ? sockfd0 : ((server_num == 1) ? sockfd1 : sockfd2);
+
+    int ret = send(sock, (void*)&(freqshare.pk[0]), PK_LENGTH, 0);
+    ret += send_bool_batch(sock, freqshare.arr, n);
+    return ret;
 }
 
 int send_to_server(const int server, const void* const buffer, const size_t n, const int flags = 0) {
@@ -399,6 +417,125 @@ void xor_op(const std::string protocol, const size_t numreqs) {
 */
 }
 
+// max
+int max_op_helper(const std::string protocol, const size_t numreqs,
+                  const unsigned int B, uint64_t &ans,
+                  const initMsg* const msg_ptr = nullptr) {
+    auto start = clock_start();
+    int num_bytes = 0;
+
+    start = clock_start();
+
+    uint64_t value;
+    uint64_t* const or_encoded_array = new uint64_t[B+1];
+    uint64_t* const share0 = new uint64_t[B+1];
+    uint64_t* const share1 = new uint64_t[B+1];
+    uint64_t* const share2 = new uint64_t[B+1];
+
+    emp::PRG prg;
+
+    MaxShare* const maxshare0 = new MaxShare[numreqs];
+    MaxShare* const maxshare1 = new MaxShare[numreqs];
+    MaxShare* const maxshare2 = new MaxShare[numreqs];
+    for (unsigned int i = 0; i < numreqs; i++) {
+        prg.random_data(&value, sizeof(uint64_t));
+        value = value % (B + 1);
+
+        if (protocol == "MAXOP")
+            ans = (value > ans ? value : ans);
+        if (protocol == "MINOP")
+            ans = (value < ans ? value : ans);
+
+        prg.random_data(or_encoded_array, (B+1)*sizeof(uint64_t));
+        prg.random_data(share1, (B+1)*sizeof(uint64_t));
+        prg.random_data(share2, (B+1)*sizeof(uint64_t));
+
+        uint64_t v = 0;
+        if (protocol == "MAXOP")
+            v = value;
+        if (protocol == "MINOP")
+            v = B - value;
+
+        for (unsigned int j = v + 1; j <= B ; j++)
+            or_encoded_array[j] = 0;
+
+        for (unsigned int j = 0; j <= B; j++)
+            share0[j] = share1[j] ^ share2[j] ^ or_encoded_array[j];
+
+        const std::string pk_s = make_pk(prg);
+        const char* const pk = pk_s.c_str();
+
+        memcpy(maxshare0[i].pk, &pk[0], PK_LENGTH);
+        maxshare0[i].arr = new uint64_t[B+1];
+        memcpy(maxshare0[i].arr, share0, (B+1)*sizeof(uint64_t));
+
+        memcpy(maxshare1[i].pk, &pk[0], PK_LENGTH);
+        maxshare1[i].arr = new uint64_t[B+1];
+        memcpy(maxshare1[i].arr, share1, (B+1)*sizeof(uint64_t));
+
+        memcpy(maxshare2[i].pk, &pk[0], PK_LENGTH);
+        maxshare2[i].arr = new uint64_t[B+1];
+        memcpy(maxshare2[i].arr, share2, (B+1)*sizeof(uint64_t));
+
+        std::cout << "client" << i << ": " << or_encoded_array[i] << " = " << maxshare0[i].arr << " ^ " << maxshare1[i].arr << " ^ " << maxshare2[i].arr << std::endl;
+    }
+    delete[] or_encoded_array;
+    delete[] share0;
+    delete[] share1;
+    delete[] share2;
+    if (numreqs > 1)
+        std::cout << "batch make:\t" << sec_from(start) << std::endl;
+
+    start = clock_start();
+    if (msg_ptr != nullptr) {
+        num_bytes += send_to_server(0, msg_ptr, sizeof(initMsg));
+        num_bytes += send_to_server(1, msg_ptr, sizeof(initMsg));
+        num_bytes += send_to_server(2, msg_ptr, sizeof(initMsg));
+    }
+    for (unsigned int i = 0; i < numreqs; i++) {
+        num_bytes += send_maxshare(0, maxshare0[i], B);
+        num_bytes += send_maxshare(1, maxshare1[i], B);
+        num_bytes += send_maxshare(2, maxshare2[i], B);
+
+        delete[] maxshare0[i].arr;
+        delete[] maxshare1[i].arr;
+        delete[] maxshare2[i].arr;
+    }
+
+    delete[] maxshare0;
+    delete[] maxshare1;
+    delete[] maxshare2;
+
+    if (numreqs > 1)
+        std::cout << "batch send:\t" << sec_from(start) << std::endl;
+
+    return num_bytes;
+}
+
+void max_op(const std::string protocol, const size_t numreqs) {
+    const uint64_t B = max_int;
+
+    uint64_t ans;
+    int num_bytes = 0;
+    initMsg msg;
+    msg.num_of_inputs = numreqs;
+    msg.max_inp = B;
+    if (protocol == "MAXOP") {
+        msg.type = MAX_OP;
+        ans = 0;
+    } else if (protocol == "MINOP") {
+        msg.type = MIN_OP;
+        ans = B;
+    } else {
+        return;
+    }
+
+	num_bytes += max_op_helper(protocol, numreqs, B, ans, &msg);
+
+    std::cout << "Ans : " << ans << std::endl;
+    std::cout << "Total sent bytes: " << num_bytes << std::endl;
+}
+
 int main(int argc, char** argv) {
 	if (argc < 4) {
 		std::cout << "argument: client_num OPERATION num_bits" <<std::endl;
@@ -512,6 +649,22 @@ int main(int argc, char** argv) {
 
 		std::cout << "Total time:\t" << sec_from(start) << std::endl;
 	} 
+	else if (protocol == "MAXOP") {
+		std::cout << "Uploading all MAX shares: " << numreqs << std::endl;
+
+		// max 
+		max_op(protocol, numreqs);
+
+		std::cout << "Total time:\t" << sec_from(start) << std::endl;
+	} 
+	else if (protocol == "MINOP") {
+		std::cout << "Uploading all MIN shares: " << numreqs << std::endl;
+
+		// min 
+		max_op(protocol, numreqs);
+
+		std::cout << "Total time:\t" << sec_from(start) << std::endl;
+	}
 
 	else {
 		std::cout << "Unrecognized protocol" << std::endl;

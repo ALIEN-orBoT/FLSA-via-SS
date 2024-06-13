@@ -21,13 +21,13 @@ struct IntShare {
     uint64_t val;
 };
 
-/*
 // For Max, Min
 struct MaxShare {
     char pk[PK_LENGTH];
     uint64_t* arr;
 };
 
+/*
 // For Var, Stddev
 struct VarShare {
     char pk[PK_LENGTH];
@@ -44,6 +44,11 @@ struct LinRegShare {
 };
 */
 
+struct FreqShare {
+    char pk[PK_LENGTH];
+    bool* arr;  // Could theoretically be compacted
+};
+
 enum messageType {
     NONE_OP,
     BIT_SUM,
@@ -51,11 +56,12 @@ enum messageType {
     INT_SUM,
     AND_OP,
     OR_OP,
-//    MAX_OP,
-//    MIN_OP,
+    MAX_OP,
+    MIN_OP,
 //    VAR_OP,
 //    STDDEV_OP,
 //    LINREG_OP,
+	FREQ_OP,
 };
 
 struct initMsg {
