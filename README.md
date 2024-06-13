@@ -53,5 +53,6 @@ The code runs three servers, 0, 1 and 2, each of which needs to be started separ
 - BITSUM
 - INTSUM
 - ANDOP / OROP
+- MAXOP / MINOP
 
 To be updated...
