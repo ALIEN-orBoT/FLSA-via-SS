@@ -54,5 +54,7 @@ The code runs three servers, 0, 1 and 2, each of which needs to be started separ
 - INTSUM
 - ANDOP / OROP
 - MAXOP / MINOP
+- FREQOP
+- MEDOP
 
 To be updated...
