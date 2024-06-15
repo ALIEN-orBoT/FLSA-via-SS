@@ -62,6 +62,7 @@ enum messageType {
 //    STDDEV_OP,
 //    LINREG_OP,
 	FREQ_OP,
+	MED_OP,
 };
 
 struct initMsg {

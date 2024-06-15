@@ -643,12 +643,33 @@ void freq_op(const std::string protocol, const size_t numreqs) {
     msg.num_of_inputs = numreqs;
     msg.max_inp = max_int;
     msg.type = FREQ_OP;
+	if (protocol == "MEDOP") msg.type = MED_OP;
 
 	num_bytes += freq_helper(protocol, numreqs, count, &msg);
 
     for (unsigned int j = 0; j < max_int; j++)
         std::cout << " Freq(" << j << ") = " << count[j] << std::endl;
+
+	if (protocol == "MEDOP") {
+		uint64_t mid1 = (numreqs + 1) / 2;
+		uint64_t mid2 = (numreqs + 2) / 2;
+		int cnt = 0;
+		uint64_t median1=0, median2=0;
+		
+		for (unsigned int i = 0; i < max_int; i++) {
+			cnt += count[i];
+			if (cnt >= mid1) median1 = i;
+			if (cnt >= mid2) median2 = i;
+			if (median1 && median2) break;
+		}
+
+		if (numreqs % 2 == 0) 
+			std::cout << "Median: " << (median1 +median2)/2 << std::endl;
+		else
+			std::cout << "Median: " << median1 << std::endl;
+	}
     delete[] count;
+
     std::cout << "Total sent bytes: " << num_bytes << std::endl;
 }
 
@@ -784,10 +805,19 @@ int main(int argc, char** argv) {
 	else if(protocol == "FREQOP") {
         std::cout << "Uploading all FREQ shares: " << numreqs << std::endl;
 
+		// freq
         freq_op(protocol, numreqs);
 
         std::cout << "Total time:\t" << sec_from(start) << std::endl;
     }
+	else if(protocol == "MEDOP") {
+        std::cout << "Uploading all MEDIAN shares: " << numreqs << std::endl;
+
+		// median
+        freq_op(protocol, numreqs);
+
+        std::cout << "Total time:\t" << sec_from(start) << std::endl;
+	}
 
 	else {
 		std::cout << "Unrecognized protocol" << std::endl;

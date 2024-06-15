@@ -1190,6 +1190,26 @@ returnType freq_op(const initMsg msg, const int clientfd, const int serverfd0, c
 		for (unsigned int j = 0; j < max_inp; j++) {
             std::cout << " Freq(" << j << ") = " << freq[j] << std::endl;
         }
+		
+		if (msg.type == MED_OP) {
+			uint64_t mid1 = (num_inputs + 1) / 2;
+			uint64_t mid2 = (num_inputs + 2) / 2;
+			int count = 0;
+			uint64_t median1=0, median2=0;
+			
+			for (unsigned int i = 0; i < max_inp; i++) {
+				count += freq[i];
+				if (count >= mid1) median1 = i;
+				if (count >= mid2) median2 = i;
+				if (median1 && median2) break;
+			}
+
+			if (num_inputs % 2 == 0) 
+				std::cout << "Median: " << (median1 + median2)/2 << std::endl;
+			else
+				std::cout << "Median: " << median1 << std::endl;
+		}
+
 	} 
 
 	else if (server_num == 1) {
@@ -1647,6 +1667,17 @@ int main(int argc, char** argv) {
 
             std::cout << "Total time  : " << sec_from(start) << std::endl;
         }
+
+		else if (msg.type == MED_OP) {
+            std::cout << "MEDIAN_OP" << std::endl;
+            auto start = clock_start();
+
+            returnType ret = freq_op(msg, newsockfd, serverfd0, serverfd, server_num);
+            if (ret == RET_ANS)
+                ; // Answer output by freq_op
+
+            std::cout << "Total time  : " << sec_from(start) << std::endl;
+		}
 
 		else if (msg.type == NONE_OP) {
             std::cout << "Empty client message" << std::endl;
