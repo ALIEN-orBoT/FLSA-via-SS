@@ -477,7 +477,20 @@ int max_op_helper(const std::string protocol, const size_t numreqs,
         maxshare2[i].arr = new uint64_t[B+1];
         memcpy(maxshare2[i].arr, share2, (B+1)*sizeof(uint64_t));
 
-        std::cout << "client" << i << ": " << or_encoded_array[i] << " = " << maxshare0[i].arr << " ^ " << maxshare1[i].arr << " ^ " << maxshare2[i].arr << std::endl;
+//        std::cout << "client" << i << ": " << or_encoded_array[i] << " = " << maxshare0[i].arr << " ^ " << maxshare1[i].arr << " ^ " << maxshare2[i].arr << std::endl;
+		std::cout << "client" << i << ": " << value << "; " ;
+		for (int i = 0; i < max_int; ++i)  
+			std::cout << or_encoded_array[i] << " ";
+		std::cout << " = ";
+		for (int j = 0; j < max_int; ++j) 
+			std::cout << maxshare0[i].arr[j] << " ";
+		std::cout << " ^ "; 
+		for (int j = 0; j < max_int; ++j) 
+			std::cout << maxshare1[i].arr[j] << " ";
+		std::cout << " ^ "; 
+		for (int j = 0; j < max_int; ++j) 
+			std::cout << maxshare2[i].arr[j] << " ";
+		std::cout << std::endl;
     }
     delete[] or_encoded_array;
     delete[] share0;
@@ -533,6 +546,109 @@ void max_op(const std::string protocol, const size_t numreqs) {
 	num_bytes += max_op_helper(protocol, numreqs, B, ans, &msg);
 
     std::cout << "Ans : " << ans << std::endl;
+    std::cout << "Total sent bytes: " << num_bytes << std::endl;
+}
+
+int freq_helper(const std::string protocol, const size_t numreqs,
+                uint64_t* counts, const initMsg* const msg_ptr = nullptr) {
+    auto start = clock_start();
+    int num_bytes = 0;
+
+    uint64_t real_val;
+	bool* real_arr = new bool[max_int];
+
+    emp::PRG prg;
+
+    FreqShare* const freqshare0 = new FreqShare[numreqs];
+    FreqShare* const freqshare1 = new FreqShare[numreqs];
+    FreqShare* const freqshare2 = new FreqShare[numreqs];
+    for (unsigned int i = 0; i < numreqs; i++) {
+        prg.random_data(&real_val, sizeof(uint64_t));
+        real_val %= max_int;
+        counts[real_val] += 1;
+
+		memset(real_arr, 0, max_int * sizeof(bool));
+		real_arr[real_val] = 1;
+//		for (int i = 0; i < max_int; ++i) 
+//			std::cout << real_arr[i] << "";
+
+        // std::cout << "Value " << i << " = " << real_val << std::endl;
+
+        // Same everywhere exept at real_val
+        freqshare0[i].arr = new bool[max_int];
+        prg.random_bool(freqshare0[i].arr, max_int);
+        freqshare1[i].arr = new bool[max_int];
+        prg.random_bool(freqshare1[i].arr, max_int);
+        freqshare2[i].arr = new bool[max_int];
+		for (unsigned int j = 0; j < max_int; j++) {
+            freqshare2[i].arr[j] = freqshare0[i].arr[j] ^ freqshare1[i].arr[j] ^ real_arr[j];
+        }	
+
+        const std::string pk_s = make_pk(prg);
+        const char* const pk = pk_s.c_str();
+        memcpy(freqshare0[i].pk, &pk[0], PK_LENGTH);
+        memcpy(freqshare1[i].pk, &pk[0], PK_LENGTH);
+        memcpy(freqshare2[i].pk, &pk[0], PK_LENGTH);
+
+		std::cout << "client" << i << ": " << real_val << "; " ;
+		for (int i = 0; i < max_int; ++i) 
+			std::cout << real_arr[i] << "";
+		std::cout << " = ";
+		for (int j = 0; j < max_int; ++j) 
+			std::cout << freqshare0[i].arr[j];
+		std::cout << " ^ "; 
+		for (int j = 0; j < max_int; ++j) 
+			std::cout << freqshare1[i].arr[j];
+		std::cout << " ^ "; 
+		for (int j = 0; j < max_int; ++j) 
+			std::cout << freqshare2[i].arr[j];
+		std::cout << std::endl;
+    }
+
+    if (numreqs > 1)
+        std::cout << "batch make:\t" << sec_from(start) << std::endl;
+
+    start = clock_start();
+    if (msg_ptr != nullptr) {
+        num_bytes += send_to_server(0, msg_ptr, sizeof(initMsg));
+        num_bytes += send_to_server(1, msg_ptr, sizeof(initMsg));
+        num_bytes += send_to_server(2, msg_ptr, sizeof(initMsg));
+    }
+    for (unsigned int i = 0; i < numreqs; i++) {
+        num_bytes += send_freqshare(0, freqshare0[i], max_int);
+        num_bytes += send_freqshare(1, freqshare1[i], max_int);
+        num_bytes += send_freqshare(2, freqshare2[i], max_int);
+
+        delete[] freqshare0[i].arr;
+        delete[] freqshare1[i].arr;
+        delete[] freqshare2[i].arr;
+    }
+
+	delete[] real_arr;
+    delete[] freqshare0;
+    delete[] freqshare1;
+    delete[] freqshare2;
+
+    if (numreqs > 1)
+        std::cout << "batch send:\t" << sec_from(start) << std::endl;
+
+    return num_bytes;
+}
+
+void freq_op(const std::string protocol, const size_t numreqs) {
+    uint64_t* count = new uint64_t[max_int];
+    memset(count, 0, max_int * sizeof(uint64_t));
+    int num_bytes = 0;
+    initMsg msg;
+    msg.num_of_inputs = numreqs;
+    msg.max_inp = max_int;
+    msg.type = FREQ_OP;
+
+	num_bytes += freq_helper(protocol, numreqs, count, &msg);
+
+    for (unsigned int j = 0; j < max_int; j++)
+        std::cout << " Freq(" << j << ") = " << count[j] << std::endl;
+    delete[] count;
     std::cout << "Total sent bytes: " << num_bytes << std::endl;
 }
 
@@ -665,6 +781,13 @@ int main(int argc, char** argv) {
 
 		std::cout << "Total time:\t" << sec_from(start) << std::endl;
 	}
+	else if(protocol == "FREQOP") {
+        std::cout << "Uploading all FREQ shares: " << numreqs << std::endl;
+
+        freq_op(protocol, numreqs);
+
+        std::cout << "Total time:\t" << sec_from(start) << std::endl;
+    }
 
 	else {
 		std::cout << "Unrecognized protocol" << std::endl;

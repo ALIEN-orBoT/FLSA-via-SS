@@ -145,7 +145,7 @@ returnType bit_sum(const initMsg msg, const int clientfd, const int serverfd0, c
             const std::string pk2 = get_pk(serverfd);
 
             bool is_valid = (share_map.find(pk) != share_map.end()
-							and share_map.find(pk) != share_map.end());
+							&& share_map.find(pk) != share_map.end());
             valid[i] = is_valid;
             if (!is_valid)
                 continue;
@@ -353,7 +353,7 @@ returnType int_sum_split(const initMsg msg, const int clientfd, const int server
             const std::string pk2 = get_pk(serverfd);
 
             bool is_valid = (share_map.find(pk) != share_map.end()
-							and share_map.find(pk2) != share_map.end() );
+							&& share_map.find(pk2) != share_map.end() );
             valid[i] = is_valid;
 			shares[i] = new uint64_t[1];
             if (!is_valid)
@@ -498,7 +498,7 @@ returnType int_sum(const initMsg msg, const int clientfd, const int serverfd0, c
             const std::string pk2 = get_pk(serverfd);
 
             bool is_valid = (share_map.find(pk) != share_map.end()
-							and share_map.find(pk2) != share_map.end());
+							&& share_map.find(pk2) != share_map.end());
             valid[i] = is_valid;
             shares[i] = new uint64_t[1];
             if (!is_valid)
@@ -793,7 +793,7 @@ returnType xor_op(const initMsg msg, const int clientfd, const int serverfd0, co
             const std::string pk = get_pk(serverfd0);
             const std::string pk2 = get_pk(serverfd);
             valid[i] = (share_map.find(pk) != share_map.end()
-						and share_map.find(pk2) != share_map.end());
+						&& share_map.find(pk2) != share_map.end());
             if (!valid[i])
                 continue;
             num_valid++;
@@ -947,7 +947,7 @@ returnType max_op(const initMsg msg, const int clientfd, const int serverfd0, co
                 a[j] ^= share_map[pk][j];
         }
 
-        std::cout << "PK+convert time: " << sec_from(start2) << std::endl;
+        std::cout << "verify+convert time: " << sec_from(start2) << std::endl;
         start2 = clock_start();
 
         server_bytes += send_bool_batch(serverfd0, valid, num_inputs);
@@ -998,7 +998,7 @@ returnType max_op(const initMsg msg, const int clientfd, const int serverfd0, co
             pk_list[idx] = share.first;
             idx++;
         }
-        std::cout << "PK time: " << sec_from(start2) << std::endl;
+        std::cout << "verify time: " << sec_from(start2) << std::endl;
         start2 = clock_start();
         bool* const other_valid = new bool[num_inputs];
         recv_bool_batch(serverfd0, other_valid, num_inputs);
@@ -1030,7 +1030,7 @@ returnType max_op(const initMsg msg, const int clientfd, const int serverfd0, co
             pk_list[idx] = share.first;
             idx++;
         }
-        std::cout << "PK time: " << sec_from(start2) << std::endl;
+        std::cout << "verify time: " << sec_from(start2) << std::endl;
         start2 = clock_start();
         bool* const other_valid = new bool[num_inputs];
         recv_bool_batch(serverfd0, other_valid, num_inputs);
@@ -1054,6 +1054,261 @@ returnType max_op(const initMsg msg, const int clientfd, const int serverfd0, co
 
     return RET_INVALID;
 }
+
+returnType freq_op(const initMsg msg, const int clientfd, const int serverfd0, const int serverfd, const int server_num) {
+    std::unordered_map<std::string, bool*> share_map;
+    auto start = clock_start();
+
+    FreqShare share;
+    const unsigned int total_inputs = msg.num_of_inputs;
+    // const uint64_t max_inp = msg.max_inp;
+    const uint64_t max_inp = 1 << num_bits;
+
+    size_t nbits[max_inp];
+    for (unsigned int i = 0; i < max_inp; i++)
+        nbits[i] = num_bits;
+
+    // TODO: batch
+    bool* const shares = new bool[total_inputs * max_inp];
+
+    std::string* const pk_list = new std::string[total_inputs];
+
+    int num_bytes = 0;
+    for (unsigned int i = 0; i < total_inputs; i++) {
+        num_bytes += recv_in(clientfd, &share.pk[0], PK_LENGTH);
+        const std::string pk(share.pk, share.pk+PK_LENGTH);
+        num_bytes += recv_bool_batch(clientfd, &shares[i * max_inp], max_inp);
+
+        if (share_map.find(pk) != share_map.end())
+            continue;
+        share_map[pk] = &shares[i * max_inp];
+
+	//	for (unsigned int j = 0; j < max_inp; j++) {
+	//		std::cout << "share[" << i << ", " << j << "] = " << shares[i * max_inp + j] << std::endl;
+	//	}
+		std::cout << "share[" << i <<  "] = ";
+		for (unsigned int j = 0; j < max_inp; j++)
+			std::cout << shares[i * max_inp + j];
+		std::cout << std::endl;
+    }
+
+    std::cout << "Received " << total_inputs << " total shares" << std::endl;
+    std::cout << "bytes from client: " << num_bytes << std::endl;
+    std::cout << "receive time: " << sec_from(start) << std::endl;
+    start = clock_start();
+    auto start2 = clock_start();
+    int server_bytes = 0;
+
+	// freq
+	if (server_num == 0) {
+		size_t num_inputs, num_valid = 0;
+        recv_size(serverfd0, num_inputs);
+        recv_size(serverfd, num_inputs);
+        bool* const shares = new bool[num_inputs * max_inp];
+        bool* const valid = new bool[num_inputs];
+
+        for (unsigned int i = 0; i < num_inputs; i++) {
+            const std::string pk0 = get_pk(serverfd0);
+            const std::string pk = get_pk(serverfd);
+            pk_list[i] = pk;
+            valid[i] = (share_map.find(pk) != share_map.end());
+
+            // realign shares_2 to pk order
+            if (valid[i]) {
+                memcpy(&shares[i * max_inp], share_map[pk], max_inp);
+				num_valid++;
+            } else {
+                memset(&shares[i * max_inp], 0, max_inp);
+            }
+        }
+        // server_bytes += send_bool_batch(serverfd, valid, num_inputs);
+        std::cout << "verify time: " << sec_from(start2) << std::endl;
+        start2 = clock_start();
+
+		// recv and compute v
+		bool v[num_inputs*max_inp], v1[num_inputs*max_inp], v2[num_inputs*max_inp];
+
+		ssize_t recvv = recv(serverfd0, v1, num_inputs*max_inp, 0);
+		recvv = recv(serverfd, v2, num_inputs*max_inp, 0);
+
+		int cnt = 0;
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			for (unsigned int j = 0; j < max_inp; j++) {
+				v[cnt] = shares[i * max_inp + j] ^ v1[cnt] ^ v2[cnt];
+				cnt++;
+			}
+		}
+		
+		server_bytes += send_out(serverfd0, v, num_inputs*max_inp);
+		server_bytes += send_out(serverfd, v, num_inputs*max_inp);
+
+        bool a[num_inputs * max_inp];
+	//	std::cout << "the result of a:"<< std::endl;
+		for (unsigned int i = 0; i < num_inputs; i++) {
+			for (unsigned int j = 0; j < max_inp; j++) {
+				a[i * max_inp + j] = v[i * max_inp + j];
+			//	std::cout << a[i * max_inp + j];
+			}
+			std::cout << " ";
+		}
+		std::cout << std::endl;
+
+		delete[] valid;
+		delete[] shares;
+
+        uint64_t b[num_inputs * max_inp], c[num_inputs * max_inp];
+		recv_uint64_batch(serverfd0, b, num_inputs * max_inp);
+		recv_uint64_batch(serverfd, c, num_inputs * max_inp);
+		std::cout << "Final valid count: " << num_valid << " / " << total_inputs << std::endl;
+        std::cout << "convert time: " << sec_from(start2) << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
+        if (num_valid < total_inputs * (1 - INVALID_THRESHOLD)) {
+            std::cout << "Failing, This is less than the invalid threshold of " << INVALID_THRESHOLD << std::endl;
+            return RET_INVALID;
+        }
+
+        uint64_t ans[num_inputs * max_inp];
+		for (unsigned int i = 0; i < num_inputs * max_inp; i++) {
+			ans[i] = a[i]+b[i]+c[i];
+			ans[i] = ans[i] % p;
+		}
+		cnt = 0;
+        uint64_t ans2[num_inputs][max_inp];
+		for (unsigned int i = 0; i < num_inputs; i++) 
+			for (unsigned int j = 0; j < max_inp; j++) {
+				ans2[i][j] = ans[cnt];
+				cnt++;
+			}
+		uint64_t freq[max_inp] = {0};
+		for (unsigned int j = 0; j < max_inp; j++)
+			for (unsigned int i = 0; i < num_inputs; i++) {
+				freq[j] += ans2[i][j];
+				freq[j] = freq[j] % p;
+			}
+
+		for (unsigned int j = 0; j < max_inp; j++) {
+            std::cout << " Freq(" << j << ") = " << freq[j] << std::endl;
+        }
+	} 
+
+	else if (server_num == 1) {
+		const size_t num_inputs = share_map.size();
+        server_bytes += send_size(serverfd0, num_inputs);
+        bool* const shares = new bool[num_inputs * max_inp];
+
+        size_t idx = 0;
+        for (const auto& share : share_map) {
+            server_bytes += send_out(serverfd0, &share.first[0], PK_LENGTH);
+            pk_list[idx] = share.first;
+            memcpy(&shares[idx * max_inp], share.second, max_inp);
+            idx++;
+        }
+        std::cout << "verify time: " << sec_from(start2) << std::endl;
+        start2 = clock_start();
+
+		// B2A
+		bool v[num_inputs * max_inp], bb[num_inputs * max_inp];
+		uint64_t ba[num_inputs * max_inp]; 
+		Dabits dabits;
+		for (unsigned int i = 0; i < num_inputs * max_inp; i++) {
+			dabits = server1Queue.front();
+			bb[i] = dabits.bb;
+			ba[i] = dabits.ba;
+			server1Queue.pop();
+
+			v[i] = shares[i] ^ bb[i];
+		}
+		// send v to server0
+		server_bytes += send_out(serverfd0, v, num_inputs * max_inp);
+		// recv v from server0
+		ssize_t recvv = recv(serverfd0, v, num_inputs * max_inp, 0);
+
+		std::cout << "Current Dabits: " << server1Queue.size() << std::endl;
+
+		uint64_t b[num_inputs * max_inp];
+		for (unsigned int i = 0; i < num_inputs * max_inp; i++) {
+			b[i] = (1-2*v[i]) * ba[i];	
+			b[i] = (3*p + b[i]) % p;	
+		}
+
+/*
+		std::cout << "the result of b:"<< std::endl;
+		for (unsigned int i = 0; i < num_inputs * max_inp; i++) {
+			std::cout << b[i] << " ";
+		}
+		std::cout << std::endl;
+*/
+
+		send_uint64_batch(serverfd0, b, num_inputs * max_inp);
+
+		std::cout << "convert time: " << sec_from(start2) << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
+
+		return RET_NO_ANS;
+	} 
+
+    else {
+		const size_t num_inputs = share_map.size();
+        server_bytes += send_size(serverfd0, num_inputs);
+        bool* const shares = new bool[num_inputs * max_inp];
+
+        size_t idx = 0;
+        for (const auto& share : share_map) {
+            server_bytes += send_out(serverfd0, &share.first[0], PK_LENGTH);
+            pk_list[idx] = share.first;
+            memcpy(&shares[idx * max_inp], share.second, max_inp);
+            idx++;
+        }
+        std::cout << "verify time: " << sec_from(start2) << std::endl;
+        start2 = clock_start();
+
+		// B2A
+		bool v[num_inputs * max_inp], bb[num_inputs * max_inp];
+		uint64_t ba[num_inputs * max_inp]; 
+		Dabits dabits;
+		for (unsigned int i = 0; i < num_inputs * max_inp; i++) {
+			dabits = server2Queue.front();
+			bb[i] = dabits.bb;
+			ba[i] = dabits.ba;
+			server2Queue.pop();
+
+			v[i] = shares[i] ^ bb[i];
+		}
+		// send v to server0
+		server_bytes += send_out(serverfd0, v, num_inputs * max_inp);
+		// recv v from server0
+		ssize_t recvv = recv(serverfd0, v, num_inputs * max_inp, 0);
+
+		std::cout << "Current Dabits: " << server2Queue.size() << std::endl;
+
+		uint64_t c[num_inputs * max_inp];
+		for (unsigned int i = 0; i < num_inputs * max_inp; i++) {
+			c[i] = (1-2*v[i]) * ba[i];	
+			c[i] = (3*p + c[i]) % p;	
+		}
+/*
+		std::cout << "the result of c:"<< std::endl;
+		for (unsigned int i = 0; i < num_inputs * max_inp; i++) {
+			std::cout << c[i] << " ";
+		}
+		std::cout << std::endl;
+*/
+	
+		delete[] shares;
+
+		send_uint64_batch(serverfd0, c, num_inputs * max_inp);
+
+		std::cout << "convert time: " << sec_from(start2) << std::endl;
+        std::cout << "compute time: " << sec_from(start) << std::endl;
+        std::cout << "sent server bytes: " << server_bytes << std::endl;
+
+		return RET_NO_ANS;
+    }
+	return RET_INVALID;
+}
+
 
 int main(int argc, char** argv) {
 
@@ -1378,6 +1633,17 @@ int main(int argc, char** argv) {
             returnType ret = max_op(msg, newsockfd, serverfd0, serverfd, server_num, ans);
             if (ret == RET_ANS)
                 std::cout << "Ans: " << ans << std::endl;
+
+            std::cout << "Total time  : " << sec_from(start) << std::endl;
+        }
+
+		else if (msg.type == FREQ_OP) {
+            std::cout << "FREQ_OP" << std::endl;
+            auto start = clock_start();
+
+            returnType ret = freq_op(msg, newsockfd, serverfd0, serverfd, server_num);
+            if (ret == RET_ANS)
+                ; // Answer output by freq_op
 
             std::cout << "Total time  : " << sec_from(start) << std::endl;
         }
